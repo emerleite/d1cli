@@ -9,6 +9,7 @@ import { loadHistory, appendHistory } from './history.js';
 import { createCompleter } from '../completion/completer.js';
 import { SchemaCache } from '../completion/schema-cache.js';
 import { LineEditor } from './line-editor.js';
+import { outputWithPager } from '../output/pager.js';
 
 export interface ReplOptions {
 	conn: Connection;
@@ -102,10 +103,11 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
 			const result = await conn.execute(sql);
 			const effectiveFormat = expanded ? 'vertical' as OutputFormat : format;
 			const output = formatResult(result, effectiveFormat);
-			console.log(output);
 
 			if (timing) {
-				console.log(chalk.gray(`Time: ${result.duration.toFixed(2)}ms`));
+				outputWithPager(output + '\n' + chalk.gray(`Time: ${result.duration.toFixed(2)}ms`));
+			} else {
+				outputWithPager(output);
 			}
 
 			if (/^\s*(CREATE|ALTER|DROP)\b/i.test(sql)) {

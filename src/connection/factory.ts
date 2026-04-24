@@ -3,7 +3,21 @@ import type { CliOptions } from '../config/args.js';
 import { LocalConnection } from './local.js';
 import { RemoteConnection } from './remote.js';
 import { resolveLocalD1Path } from './resolve-local-path.js';
-import { findWranglerConfig, parseD1Bindings, type D1Binding } from '../config/wrangler.js';
+import { findWranglerConfig, parseD1Bindings, readWranglerAuth, type D1Binding } from '../config/wrangler.js';
+
+async function detectAccountId(apiToken: string): Promise<string | null> {
+	try {
+		const res = await fetch('https://api.cloudflare.com/client/v4/accounts?per_page=1', {
+			headers: { Authorization: `Bearer ${apiToken}` },
+		});
+		if (!res.ok) return null;
+		const data = (await res.json()) as { result: { id: string }[] };
+		if (data.result?.length > 0) return data.result[0].id;
+	} catch {
+		// ignore
+	}
+	return null;
+}
 
 function pickBinding(bindings: D1Binding[], dbName?: string, databaseId?: string): D1Binding {
 	if (databaseId) {
@@ -28,10 +42,39 @@ export async function createConnection(opts: CliOptions): Promise<Connection> {
 	const configPath = findWranglerConfig(opts.config);
 
 	if (opts.remote) {
-		const apiToken = process.env.CF_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN;
-		const accountId = process.env.CF_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID;
-		if (!apiToken) throw new Error('CF_API_TOKEN environment variable is required for remote mode');
-		if (!accountId) throw new Error('CF_ACCOUNT_ID environment variable is required for remote mode');
+		let apiToken = process.env.CF_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN;
+		let accountId = process.env.CF_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID;
+
+		// Fallback: read wrangler's OAuth token from `wrangler login`
+		if (!apiToken) {
+			const auth = readWranglerAuth();
+			if (auth) {
+				// Check expiration
+				if (auth.expirationTime && new Date(auth.expirationTime) < new Date()) {
+					throw new Error('Wrangler OAuth token expired. Run `wrangler login` to refresh.');
+				}
+				apiToken = auth.oauthToken;
+			}
+		}
+
+		if (!apiToken) {
+			throw new Error(
+				'No API token found. Either:\n' +
+				'  1. Run `wrangler login` (recommended)\n' +
+				'  2. Set CF_API_TOKEN environment variable'
+			);
+		}
+
+		// Auto-detect account ID if not set
+		if (!accountId && apiToken) {
+			accountId = await detectAccountId(apiToken);
+		}
+
+		if (!accountId) {
+			throw new Error(
+				'Could not detect account ID. Set CF_ACCOUNT_ID environment variable.'
+			);
+		}
 
 		let binding: D1Binding;
 		if (opts.databaseId) {
