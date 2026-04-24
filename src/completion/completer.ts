@@ -182,6 +182,7 @@ export function createCompleter(schemaCache: SchemaCache) {
 		if (context === 'table') {
 			candidates = schemaCache.getTableNames().map((t) => ({ text: t, type: 'table' as CompletionType }));
 		} else if (context === 'column') {
+			// After SELECT/WHERE/etc: columns, tables, functions — no keywords
 			const items: CompletionItem[] = [];
 			if (queryTables.length > 0) {
 				const seen = new Set<string>();
@@ -198,9 +199,8 @@ export function createCompleter(schemaCache: SchemaCache) {
 					items.push({ text: c, type: 'column' });
 				}
 			}
-			for (const f of SQLITE_FUNCTIONS) items.push({ text: f, type: 'function' });
-			for (const k of SQL_KEYWORDS) items.push({ text: k, type: 'keyword' });
 			for (const t of schemaCache.getTableNames()) items.push({ text: t, type: 'table' });
+			for (const f of SQLITE_FUNCTIONS) items.push({ text: f, type: 'function' });
 			candidates = items;
 		} else {
 			candidates = [
