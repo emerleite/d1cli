@@ -1,5 +1,5 @@
 {
-	"name": "d1cli",
+	"name": "@emerleite/d1cli",
 	"version": "0.1.0",
 	"description": "Interactive SQL REPL for Cloudflare D1 databases",
 	"type": "module",

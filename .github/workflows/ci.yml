@@ -74,7 +74,7 @@ jobs:
             Development build from commit `${{ github.sha }}`
 
             ```bash
-            npm install d1cli@dev
+            npm install @emerleite/d1cli@dev
             ```
           prerelease: true
           make_latest: false
