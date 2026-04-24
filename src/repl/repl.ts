@@ -1,4 +1,3 @@
-import * as readline from 'readline';
 import chalk from 'chalk';
 import type { Connection } from '../connection/interface.js';
 import type { OutputFormat } from '../output/formatter.js';
@@ -9,6 +8,7 @@ import { makePrompt, makeContinuationPrompt } from './prompt.js';
 import { loadHistory, appendHistory } from './history.js';
 import { createCompleter } from '../completion/completer.js';
 import { SchemaCache } from '../completion/schema-cache.js';
+import { LineEditor } from './line-editor.js';
 
 export interface ReplOptions {
 	conn: Connection;
@@ -27,32 +27,26 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
 	const completer = createCompleter(schemaCache);
 	const input = new InputAccumulator();
 
-	const rl = readline.createInterface({
-		input: process.stdin,
-		output: process.stdout,
-		completer,
-		terminal: true,
-		history,
-		historySize: 1000,
-	});
-
 	const prompt = makePrompt(conn);
 	const continuationPrompt = makeContinuationPrompt(conn);
+
+	const editor = new LineEditor({
+		prompt,
+		completer,
+		history,
+	});
 
 	// Welcome banner
 	console.log(chalk.bold(`d1cli v0.1.0`));
 	console.log(`Connected to ${chalk.bold(conn.databaseName)} (${conn.mode})`);
 	console.log(chalk.gray('Type \\? for help, \\q to quit.\n'));
 
-	rl.setPrompt(prompt);
-	rl.prompt();
-
-	rl.on('line', async (line: string) => {
+	editor.on('line', async (line: string) => {
 		const trimmed = line.trim();
 
 		// Empty line
 		if (!trimmed && !input.isAccumulating()) {
-			rl.prompt();
+			editor.promptLine();
 			return;
 		}
 
@@ -68,37 +62,36 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
 			try {
 				const result = await handleCommand(trimmed, ctx);
 				if (result.quit) {
-					rl.close();
+					editor.close();
 					return;
 				}
 				if (result.output) console.log(result.output);
 			} catch (err) {
 				console.error(chalk.red(`Error: ${err instanceof Error ? err.message : err}`));
 			}
-			rl.prompt();
+			editor.promptLine();
 			return;
 		}
 
 		// exit/quit without backslash
 		if ((trimmed === 'exit' || trimmed === 'quit') && !input.isAccumulating()) {
-			rl.close();
+			editor.close();
 			return;
 		}
 
 		// Accumulate SQL
 		const sql = input.append(line);
 		if (sql === null) {
-			rl.setPrompt(continuationPrompt);
-			rl.prompt();
+			editor.setPrompt(continuationPrompt);
+			editor.promptLine();
 			return;
 		}
 
 		// Execute SQL
-		rl.setPrompt(prompt);
+		editor.setPrompt(prompt);
 		appendHistory(sql);
 
 		try {
-			// Refresh schema cache on DDL
 			if (/^\s*(CREATE|ALTER|DROP)\b/i.test(sql)) {
 				schemaCache.invalidate();
 			}
@@ -111,7 +104,6 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
 				console.log(chalk.gray(`Time: ${result.duration.toFixed(2)}ms`));
 			}
 
-			// Refresh schema after DDL
 			if (/^\s*(CREATE|ALTER|DROP)\b/i.test(sql)) {
 				await schemaCache.refresh(conn).catch(() => {});
 			}
@@ -119,24 +111,25 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
 			console.error(chalk.red(`Error: ${err instanceof Error ? err.message : err}`));
 		}
 
-		rl.prompt();
+		editor.promptLine();
 	});
 
-	rl.on('close', async () => {
+	editor.on('close', async () => {
 		console.log(chalk.gray('\nBye!'));
 		await conn.close();
 		process.exit(0);
 	});
 
-	// Ctrl+C cancels current input
-	rl.on('SIGINT', () => {
+	editor.on('SIGINT', () => {
 		if (input.isAccumulating()) {
 			input.reset();
-			console.log('');
-			rl.setPrompt(prompt);
-			rl.prompt();
+			process.stdout.write('\n');
+			editor.setPrompt(prompt);
+			editor.promptLine();
 		} else {
-			rl.close();
+			editor.close();
 		}
 	});
+
+	editor.start();
 }
