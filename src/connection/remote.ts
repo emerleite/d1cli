@@ -77,7 +77,18 @@ export class RemoteConnection implements Connection {
 
 	async getTables(): Promise<string[]> {
 		const result = await this.execute(
-			"SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '_cf_%' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+			`SELECT name FROM sqlite_master
+			WHERE type='table'
+				AND name NOT LIKE '_cf_%'
+				AND name NOT LIKE 'sqlite_%'
+				AND name NOT IN (
+					SELECT name || '_content' FROM sqlite_master WHERE type='table' AND sql LIKE '%fts%'
+					UNION SELECT name || '_data' FROM sqlite_master WHERE type='table' AND sql LIKE '%fts%'
+					UNION SELECT name || '_docsize' FROM sqlite_master WHERE type='table' AND sql LIKE '%fts%'
+					UNION SELECT name || '_idx' FROM sqlite_master WHERE type='table' AND sql LIKE '%fts%'
+					UNION SELECT name || '_config' FROM sqlite_master WHERE type='table' AND sql LIKE '%fts%'
+				)
+			ORDER BY name`
 		);
 		return result.rows.map((r) => r.name as string);
 	}

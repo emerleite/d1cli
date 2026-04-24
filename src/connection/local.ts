@@ -32,7 +32,18 @@ export class LocalConnection implements Connection {
 
 	async getTables(): Promise<string[]> {
 		const rows = this.db
-			.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '_cf_%' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+			.prepare(`SELECT name FROM sqlite_master
+				WHERE type='table'
+					AND name NOT LIKE '_cf_%'
+					AND name NOT LIKE 'sqlite_%'
+					AND name NOT IN (
+						SELECT name || '_content' FROM sqlite_master WHERE type='table' AND sql LIKE '%fts%'
+						UNION SELECT name || '_data' FROM sqlite_master WHERE type='table' AND sql LIKE '%fts%'
+						UNION SELECT name || '_docsize' FROM sqlite_master WHERE type='table' AND sql LIKE '%fts%'
+						UNION SELECT name || '_idx' FROM sqlite_master WHERE type='table' AND sql LIKE '%fts%'
+						UNION SELECT name || '_config' FROM sqlite_master WHERE type='table' AND sql LIKE '%fts%'
+					)
+				ORDER BY name`)
 			.all() as { name: string }[];
 		return rows.map((r) => r.name);
 	}

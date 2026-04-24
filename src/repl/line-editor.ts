@@ -2,13 +2,23 @@ import * as readline from 'readline';
 import stripAnsi from 'strip-ansi';
 import stringWidth from 'string-width';
 import ansiEscapes from 'ansi-escapes';
+import chalk from 'chalk';
 import { highlightSql } from '../highlight/highlighter.js';
+import type { CompletionItem, CompletionType } from '../completion/completer.js';
 
 export interface LineEditorOptions {
 	prompt: string;
-	completer?: (line: string) => [string[], string];
+	completer?: ((line: string) => [string[], string]) & { getLastCompletions?: () => CompletionItem[] };
 	history?: string[];
 }
+
+const TYPE_LABELS: Record<CompletionType, string> = {
+	table: chalk.green('table'),
+	column: chalk.cyan('column'),
+	keyword: chalk.blue('keyword'),
+	function: chalk.magenta('func'),
+	command: chalk.yellow('cmd'),
+};
 
 export class LineEditor {
 	private line = '';
@@ -273,16 +283,25 @@ export class LineEditor {
 			return;
 		}
 
-		// Show candidates
+		// Show candidates with type labels
 		process.stdout.write('\n');
-		const cols = process.stdout.columns || 80;
-		const maxLen = Math.max(...completions.map((c) => c.length)) + 2;
-		const perRow = Math.max(1, Math.floor(cols / maxLen));
+		const meta: CompletionItem[] = (this.completer as any)?.getLastCompletions?.() || [];
 
-		for (let i = 0; i < completions.length; i++) {
-			process.stdout.write(completions[i].padEnd(maxLen));
-			if ((i + 1) % perRow === 0 || i === completions.length - 1) {
-				process.stdout.write('\n');
+		if (meta.length > 0) {
+			const maxTextLen = Math.max(...meta.map((m: CompletionItem) => m.text.length));
+			for (const item of meta) {
+				const label = TYPE_LABELS[item.type] || item.type;
+				process.stdout.write(`  ${item.text.padEnd(maxTextLen + 2)}${label}\n`);
+			}
+		} else {
+			const cols = process.stdout.columns || 80;
+			const maxLen = Math.max(...completions.map((c) => c.length)) + 2;
+			const perRow = Math.max(1, Math.floor(cols / maxLen));
+			for (let i = 0; i < completions.length; i++) {
+				process.stdout.write(completions[i].padEnd(maxLen));
+				if ((i + 1) % perRow === 0 || i === completions.length - 1) {
+					process.stdout.write('\n');
+				}
 			}
 		}
 

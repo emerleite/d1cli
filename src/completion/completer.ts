@@ -1,6 +1,13 @@
 import { SQL_KEYWORDS, BACKSLASH_COMMANDS, SQLITE_FUNCTIONS } from './keywords.js';
 import type { SchemaCache } from './schema-cache.js';
 
+export type CompletionType = 'keyword' | 'table' | 'column' | 'function' | 'command';
+
+export interface CompletionItem {
+	text: string;
+	type: CompletionType;
+}
+
 /**
  * Extract table names from a partial SQL query (FROM/JOIN clauses).
  */
@@ -81,13 +88,25 @@ function fuzzyScore(partial: string, candidate: string): number {
 	return score + 1;
 }
 
+function applyCase(text: string, isLower: boolean): string {
+	return isLower ? text.toLowerCase() : text;
+}
+
 export function createCompleter(schemaCache: SchemaCache) {
-	return function completer(line: string): [string[], string] {
+	/**
+	 * Returns [completionTexts, partial] for readline compatibility,
+	 * plus stores metadata for rich display via getLastCompletions().
+	 */
+	let lastCompletions: CompletionItem[] = [];
+
+	function completer(line: string): [string[], string] {
 		const context = getContext(line);
 
 		if (context === 'backslash') {
 			const hits = BACKSLASH_COMMANDS.filter((c) => c.startsWith(line));
-			return [hits.length ? hits : BACKSLASH_COMMANDS, line];
+			const items = (hits.length ? hits : BACKSLASH_COMMANDS).map((c) => ({ text: c, type: 'command' as CompletionType }));
+			lastCompletions = items;
+			return [items.map((i) => i.text), line];
 		}
 
 		const words = line.split(/\s+/);
@@ -113,47 +132,77 @@ export function createCompleter(schemaCache: SchemaCache) {
 			}
 
 			const isLower = colPartial === colPartial.toLowerCase();
-			const results = hits.map((h) => `${tablePart}.${isLower ? h.toLowerCase() : h}`);
-			return [results, lastWord];
+			const items = hits.map((h) => ({ text: `${tablePart}.${applyCase(h, isLower)}`, type: 'column' as CompletionType }));
+			lastCompletions = items;
+			return [items.map((i) => i.text), lastWord];
 		}
 
 		const partial = lastWord;
 		const partialUpper = partial.toUpperCase();
+		const isLower = partial === partial.toLowerCase();
 
-		let candidates: string[];
+		let candidates: CompletionItem[];
 		const queryTables = extractTablesFromQuery(line);
 
 		if (context === 'table') {
-			candidates = schemaCache.getTableNames();
+			candidates = schemaCache.getTableNames().map((t) => ({ text: t, type: 'table' as CompletionType }));
 		} else if (context === 'column') {
+			const items: CompletionItem[] = [];
 			if (queryTables.length > 0) {
-				const queryCols = new Set<string>();
+				const seen = new Set<string>();
 				for (const t of queryTables) {
 					for (const c of schemaCache.getColumnNames(t)) {
-						queryCols.add(c);
+						if (!seen.has(c)) {
+							seen.add(c);
+							items.push({ text: c, type: 'column' });
+						}
 					}
 				}
-				candidates = [...queryCols, ...SQLITE_FUNCTIONS, ...SQL_KEYWORDS, ...schemaCache.getTableNames()];
 			} else {
-				candidates = [...schemaCache.getColumnNames(), ...SQLITE_FUNCTIONS, ...SQL_KEYWORDS, ...schemaCache.getTableNames()];
+				for (const c of schemaCache.getColumnNames()) {
+					items.push({ text: c, type: 'column' });
+				}
 			}
+			for (const f of SQLITE_FUNCTIONS) items.push({ text: f, type: 'function' });
+			for (const k of SQL_KEYWORDS) items.push({ text: k, type: 'keyword' });
+			for (const t of schemaCache.getTableNames()) items.push({ text: t, type: 'table' });
+			candidates = items;
 		} else {
-			candidates = [...SQL_KEYWORDS, ...SQLITE_FUNCTIONS, ...schemaCache.getTableNames(), ...schemaCache.getColumnNames()];
+			candidates = [
+				...SQL_KEYWORDS.map((k) => ({ text: k, type: 'keyword' as CompletionType })),
+				...SQLITE_FUNCTIONS.map((f) => ({ text: f, type: 'function' as CompletionType })),
+				...schemaCache.getTableNames().map((t) => ({ text: t, type: 'table' as CompletionType })),
+				...schemaCache.getColumnNames().map((c) => ({ text: c, type: 'column' as CompletionType })),
+			];
 		}
 
-		candidates = [...new Set(candidates)];
+		// Deduplicate by text
+		const seen = new Set<string>();
+		candidates = candidates.filter((c) => {
+			const key = c.text.toUpperCase();
+			if (seen.has(key)) return false;
+			seen.add(key);
+			return true;
+		});
 
-		let hits = candidates.filter((c) => c.toUpperCase().startsWith(partialUpper));
+		// Prefix match first
+		let hits = candidates.filter((c) => c.text.toUpperCase().startsWith(partialUpper));
 
+		// Fuzzy fallback
 		if (hits.length === 0 && partial.length >= 2) {
 			hits = candidates
-				.filter((c) => fuzzyMatch(partial, c))
-				.sort((a, b) => fuzzyScore(partial, a) - fuzzyScore(partial, b));
+				.filter((c) => fuzzyMatch(partial, c.text))
+				.sort((a, b) => fuzzyScore(partial, a.text) - fuzzyScore(partial, b.text));
 		}
 
-		const isLower = partial === partial.toLowerCase();
-		const results = hits.map((h) => (isLower ? h.toLowerCase() : h));
+		// Apply case
+		const results = hits.map((h) => ({ ...h, text: applyCase(h.text, isLower) }));
+		lastCompletions = results;
 
-		return [results, partial];
-	};
+		return [results.map((r) => r.text), partial];
+	}
+
+	completer.getLastCompletions = (): CompletionItem[] => lastCompletions;
+
+	return completer;
 }
