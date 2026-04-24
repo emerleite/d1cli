@@ -9,7 +9,7 @@ import { loadHistory, appendHistory } from './history.js';
 import { createCompleter } from '../completion/completer.js';
 import { SchemaCache } from '../completion/schema-cache.js';
 import { LineEditor } from './line-editor.js';
-import { outputWithPager } from '../output/pager.js';
+import { outputWithPagerAsync } from '../output/pager.js';
 
 export interface ReplOptions {
 	conn: Connection;
@@ -105,9 +105,9 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
 			const output = formatResult(result, effectiveFormat);
 
 			if (timing) {
-				outputWithPager(output + '\n' + chalk.gray(`Time: ${result.duration.toFixed(2)}ms`));
+				await outputWithPagerAsync(output + '\n' + chalk.gray(`Time: ${result.duration.toFixed(2)}ms`));
 			} else {
-				outputWithPager(output);
+				await outputWithPagerAsync(output);
 			}
 
 			if (/^\s*(CREATE|ALTER|DROP)\b/i.test(sql)) {

@@ -182,7 +182,8 @@ export function createCompleter(schemaCache: SchemaCache) {
 		if (context === 'table') {
 			candidates = schemaCache.getTableNames().map((t) => ({ text: t, type: 'table' as CompletionType }));
 		} else if (context === 'column') {
-			// After SELECT/WHERE/etc: columns, tables, functions — no keywords
+			// After SELECT/WHERE/etc: columns and tables first.
+			// Functions only when user starts typing a match.
 			const items: CompletionItem[] = [];
 			if (queryTables.length > 0) {
 				const seen = new Set<string>();
@@ -200,7 +201,10 @@ export function createCompleter(schemaCache: SchemaCache) {
 				}
 			}
 			for (const t of schemaCache.getTableNames()) items.push({ text: t, type: 'table' });
-			for (const f of SQLITE_FUNCTIONS) items.push({ text: f, type: 'function' });
+			// Only include functions when user has typed a partial match
+			if (partial.length > 0) {
+				for (const f of SQLITE_FUNCTIONS) items.push({ text: f, type: 'function' });
+			}
 			candidates = items;
 		} else {
 			candidates = [
