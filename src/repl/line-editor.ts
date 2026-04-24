@@ -291,7 +291,8 @@ export class LineEditor {
 			const maxTextLen = Math.max(...meta.map((m: CompletionItem) => m.text.length));
 			for (const item of meta) {
 				const label = TYPE_LABELS[item.type] || item.type;
-				process.stdout.write(`  ${item.text.padEnd(maxTextLen + 2)}${label}\n`);
+				const desc = item.description ? chalk.gray(`  ${item.description}`) : '';
+				process.stdout.write(`  ${item.text.padEnd(maxTextLen + 2)}${label}${desc}\n`);
 			}
 		} else {
 			const cols = process.stdout.columns || 80;

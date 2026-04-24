@@ -19,6 +19,7 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
 	const { conn } = opts;
 	let format: OutputFormat = opts.format;
 	let timing = false;
+	let expanded = false;
 
 	const schemaCache = new SchemaCache();
 	await schemaCache.ensureLoaded(conn).catch(() => {});
@@ -56,8 +57,10 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
 				conn,
 				format,
 				timing,
+				expanded,
 				setFormat: (f) => { format = f; },
 				setTiming: (t) => { timing = t; },
+				setExpanded: (e) => { expanded = e; },
 			};
 			try {
 				const result = await handleCommand(trimmed, ctx);
@@ -97,7 +100,8 @@ export async function startRepl(opts: ReplOptions): Promise<void> {
 			}
 
 			const result = await conn.execute(sql);
-			const output = formatResult(result, format);
+			const effectiveFormat = expanded ? 'vertical' as OutputFormat : format;
+			const output = formatResult(result, effectiveFormat);
 			console.log(output);
 
 			if (timing) {

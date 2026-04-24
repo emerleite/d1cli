@@ -149,4 +149,65 @@ describe('createCompleter', () => {
 			expect(hasZeroblob).toBe(true);
 		});
 	});
+
+	describe('backslash command completion', () => {
+		it('completes partial command', () => {
+			const completer = createCompleter(makeCache([]));
+			const [hits] = completer('\\d');
+			expect(hits).toContain('\\dt');
+			expect(hits).toContain('\\d');
+			expect(hits).toContain('\\di');
+		});
+
+		it('suggests table names after \\d ', () => {
+			const cache = makeCache(['users', 'messages']);
+			const completer = createCompleter(cache);
+			const [hits, partial] = completer('\\d ');
+			expect(partial).toBe('');
+			expect(hits).toContain('users');
+			expect(hits).toContain('messages');
+		});
+
+		it('filters table names after \\d with partial', () => {
+			const cache = makeCache(['users', 'messages']);
+			const completer = createCompleter(cache);
+			const [hits] = completer('\\d us');
+			expect(hits).toContain('users');
+			expect(hits).not.toContain('messages');
+		});
+
+		it('suggests table names after \\schema ', () => {
+			const cache = makeCache(['users', 'posts']);
+			const completer = createCompleter(cache);
+			const [hits] = completer('\\schema ');
+			expect(hits).toContain('users');
+			expect(hits).toContain('posts');
+		});
+
+		it('suggests format names after \\T ', () => {
+			const completer = createCompleter(makeCache([]));
+			const [hits] = completer('\\T ');
+			expect(hits).toContain('table');
+			expect(hits).toContain('json');
+			expect(hits).toContain('csv');
+			expect(hits).toContain('vertical');
+		});
+
+		it('filters format names after \\T with partial', () => {
+			const completer = createCompleter(makeCache([]));
+			const [hits] = completer('\\T j');
+			expect(hits).toContain('json');
+			expect(hits).not.toContain('table');
+		});
+
+		it('returns all commands with descriptions', () => {
+			const completer = createCompleter(makeCache([]));
+			const [hits] = completer('\\');
+			expect(hits).toContain('\\dt');
+			expect(hits).toContain('\\schema');
+			expect(hits).toContain('\\T');
+			expect(hits).toContain('\\x');
+			expect(hits).toContain('\\q');
+		});
+	});
 });

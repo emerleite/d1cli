@@ -3,14 +3,17 @@ import type { OutputFormat } from '../output/formatter.js';
 import { handleTables } from './tables.js';
 import { handleDescribe } from './describe.js';
 import { handleIndexes } from './indexes.js';
+import { handleSchema } from './schema.js';
 import { handleHelp } from './help.js';
 
 export interface CommandContext {
 	conn: Connection;
 	format: OutputFormat;
 	timing: boolean;
+	expanded: boolean;
 	setFormat: (f: OutputFormat) => void;
 	setTiming: (t: boolean) => void;
+	setExpanded: (e: boolean) => void;
 }
 
 export interface CommandResult {
@@ -35,6 +38,10 @@ export async function handleCommand(input: string, ctx: CommandContext): Promise
 		case '\\di':
 			return { output: await handleIndexes(arg || undefined, ctx) };
 
+		case '\\schema':
+			if (!arg) return { output: 'Usage: \\schema <table_name>' };
+			return { output: await handleSchema(arg, ctx) };
+
 		case '\\t':
 		case '\\T': {
 			const validFormats: OutputFormat[] = ['table', 'json', 'csv', 'vertical'];
@@ -49,6 +56,12 @@ export async function handleCommand(input: string, ctx: CommandContext): Promise
 			const newVal = !ctx.timing;
 			ctx.setTiming(newVal);
 			return { output: `Timing is ${newVal ? 'on' : 'off'}` };
+		}
+
+		case '\\x': {
+			const newVal = !ctx.expanded;
+			ctx.setExpanded(newVal);
+			return { output: `Expanded display is ${newVal ? 'on' : 'off'}` };
 		}
 
 		case '\\?':

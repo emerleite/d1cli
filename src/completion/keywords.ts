@@ -34,6 +34,25 @@ export const SQLITE_FUNCTIONS = [
 	'JSON_GROUP_ARRAY', 'JSON_GROUP_OBJECT', 'JSON_EACH', 'JSON_TREE',
 ];
 
-export const BACKSLASH_COMMANDS = [
-	'\\dt', '\\d', '\\di', '\\T', '\\timing', '\\?', '\\q', '\\help',
+export interface CommandInfo {
+	name: string;
+	description: string;
+	args?: 'table' | 'index' | 'format' | 'none';
+}
+
+export const COMMANDS: CommandInfo[] = [
+	{ name: '\\dt', description: 'List tables', args: 'none' },
+	{ name: '\\d', description: 'Describe table', args: 'table' },
+	{ name: '\\di', description: 'List indexes', args: 'table' },
+	{ name: '\\schema', description: 'Show CREATE statement', args: 'table' },
+	{ name: '\\T', description: 'Set output format', args: 'format' },
+	{ name: '\\timing', description: 'Toggle query timing', args: 'none' },
+	{ name: '\\x', description: 'Toggle expanded output', args: 'none' },
+	{ name: '\\?', description: 'Show help', args: 'none' },
+	{ name: '\\help', description: 'Show help', args: 'none' },
+	{ name: '\\q', description: 'Quit', args: 'none' },
 ];
+
+export const BACKSLASH_COMMANDS = COMMANDS.map((c) => c.name);
+
+export const OUTPUT_FORMATS = ['table', 'json', 'csv', 'vertical'];

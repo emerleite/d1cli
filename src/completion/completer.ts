@@ -1,4 +1,4 @@
-import { SQL_KEYWORDS, BACKSLASH_COMMANDS, SQLITE_FUNCTIONS } from './keywords.js';
+import { SQL_KEYWORDS, SQLITE_FUNCTIONS, COMMANDS, OUTPUT_FORMATS } from './keywords.js';
 import type { SchemaCache } from './schema-cache.js';
 
 export type CompletionType = 'keyword' | 'table' | 'column' | 'function' | 'command';
@@ -6,6 +6,7 @@ export type CompletionType = 'keyword' | 'table' | 'column' | 'function' | 'comm
 export interface CompletionItem {
 	text: string;
 	type: CompletionType;
+	description?: string;
 }
 
 /**
@@ -99,14 +100,48 @@ export function createCompleter(schemaCache: SchemaCache) {
 	 */
 	let lastCompletions: CompletionItem[] = [];
 
+	function completeBackslash(line: string): [string[], string] {
+		const parts = line.split(/\s+/);
+		const cmd = parts[0];
+		const hasArg = parts.length > 1;
+		const argPartial = hasArg ? parts.slice(1).join(' ') : '';
+
+		// If we have a complete command and a space, suggest arguments
+		if (hasArg) {
+			const cmdInfo = COMMANDS.find((c) => c.name === cmd);
+			if (cmdInfo) {
+				let items: CompletionItem[] = [];
+
+				if (cmdInfo.args === 'table') {
+					const tables = schemaCache.getTableNames();
+					const partial = argPartial.toLowerCase();
+					const filtered = partial ? tables.filter((t) => t.toLowerCase().startsWith(partial)) : tables;
+					items = filtered.map((t) => ({ text: t, type: 'table' as CompletionType }));
+				} else if (cmdInfo.args === 'format') {
+					const partial = argPartial.toLowerCase();
+					const filtered = partial ? OUTPUT_FORMATS.filter((f) => f.startsWith(partial)) : OUTPUT_FORMATS;
+					items = filtered.map((f) => ({ text: f, type: 'keyword' as CompletionType }));
+				}
+
+				lastCompletions = items;
+				return [items.map((i) => i.text), argPartial];
+			}
+		}
+
+		// Complete the command itself, with descriptions
+		const partial = line;
+		const hits = COMMANDS.filter((c) => c.name.startsWith(partial));
+		const commands = hits.length ? hits : COMMANDS;
+		const items = commands.map((c) => ({ text: c.name, type: 'command' as CompletionType, description: c.description }));
+		lastCompletions = items;
+		return [items.map((i) => i.text), partial];
+	}
+
 	function completer(line: string): [string[], string] {
 		const context = getContext(line);
 
 		if (context === 'backslash') {
-			const hits = BACKSLASH_COMMANDS.filter((c) => c.startsWith(line));
-			const items = (hits.length ? hits : BACKSLASH_COMMANDS).map((c) => ({ text: c, type: 'command' as CompletionType }));
-			lastCompletions = items;
-			return [items.map((i) => i.text), line];
+			return completeBackslash(line);
 		}
 
 		const words = line.split(/\s+/);
