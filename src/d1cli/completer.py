@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from prompt_toolkit.completion import Completer, Completion
@@ -45,14 +46,25 @@ SQLITE_FUNCTIONS = [
 
 BACKSLASH_COMMANDS = {
     "\\dt": "List tables",
-    "\\d": "Describe table",
+    "\\d": "List or describe tables",
     "\\di": "List indexes",
+    "\\dv": "List views",
     "\\schema": "Show CREATE statement",
-    "\\T": "Set output format",
+    "\\T": "Change output format",
     "\\x": "Toggle expanded output",
     "\\timing": "Toggle query timing",
-    "\\?": "Show help",
-    "\\q": "Quit",
+    "\\pager": "Set PAGER",
+    "\\o": "Send output to file",
+    "\\e": "Edit query with external editor",
+    "\\i": "Execute commands from file",
+    "\\!": "Execute shell command",
+    "\\n": "List or execute named queries",
+    "\\ns": "Save a named query",
+    "\\nd": "Delete a named query",
+    "\\#": "Refresh auto-completions",
+    "\\refresh": "Refresh auto-completions",
+    "\\?": "Show commands",
+    "\\q": "Quit d1cli",
 }
 
 OUTPUT_FORMATS = ["table", "csv", "json", "vertical"]
@@ -118,6 +130,16 @@ class D1Completer(Completer):
         except Exception:
             pass
 
+    def _get_named_query_names(self) -> list[str]:
+        try:
+            import json
+            path = Path.home() / ".config" / "d1cli" / "named_queries.json"
+            if path.exists():
+                return list(json.loads(path.read_text()).keys())
+        except Exception:
+            pass
+        return []
+
     def _all_columns(self) -> list[str]:
         seen = set()
         result = []
@@ -164,6 +186,18 @@ class D1Completer(Completer):
                 for f in OUTPUT_FORMATS:
                     if f.startswith(arg_partial.lower()):
                         yield Completion(f, -len(arg_partial), display_meta="format")
+            elif cmd_name == "\\pager":
+                for opt in ("on", "off", "less", "more"):
+                    if opt.startswith(arg_partial.lower()):
+                        yield Completion(opt, -len(arg_partial))
+            elif cmd_name == "\\n":
+                for name in self._get_named_query_names():
+                    if name.lower().startswith(arg_partial.lower()):
+                        yield Completion(name, -len(arg_partial), display_meta="query")
+            elif cmd_name == "\\nd":
+                for name in self._get_named_query_names():
+                    if name.lower().startswith(arg_partial.lower()):
+                        yield Completion(name, -len(arg_partial), display_meta="query")
         else:
             # Completing command name
             for name, desc in BACKSLASH_COMMANDS.items():

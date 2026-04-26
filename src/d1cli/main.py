@@ -156,9 +156,9 @@ def _make_bindings():
     return bindings
 
 
-def _run_repl(conn: Connection, fmt: str) -> None:
+def _run_repl(conn: Connection, fmt: str, row_limit: int = 1000) -> None:
     completer = D1Completer(conn)
-    state = {"format": fmt, "timing": False, "expanded": False}
+    state = {"format": fmt, "timing": False, "expanded": False, "row_limit": row_limit}
 
     history_path = Path.home() / ".config" / "d1cli" / "history"
     history_path.parent.mkdir(parents=True, exist_ok=True)
@@ -201,12 +201,24 @@ def _run_repl(conn: Connection, fmt: str) -> None:
                 if output is None:
                     break  # quit
                 click.echo(output)
+
+                # Handle refresh request
+                if state.pop("_refresh_completions", False):
+                    completer.refresh()
+
+                # Handle deferred SQL execution (\e, \i, \n)
+                deferred_sql = state.pop("_execute_sql", None)
+                if deferred_sql:
+                    text = deferred_sql
+                else:
+                    continue
             except Exception as e:
                 click.secho(f"Error: {e}", fg="red")
-            continue
+                continue
 
         # SQL — strip trailing semicolon for execution
         sql = text.rstrip(";").strip() if text.endswith(";") else text
+        state["last_query"] = sql
 
         try:
             # Refresh schema on DDL
@@ -221,16 +233,23 @@ def _run_repl(conn: Connection, fmt: str) -> None:
 
             if result.truncated:
                 click.secho(
-                    f"Results truncated to {row_limit} rows. Use LIMIT or \\limit 0 to disable.",
+                    f"Results truncated to {row_limit} rows (row-limit={row_limit}).",
                     fg="red",
                 )
 
+            # Output to file if \o is active
+            output_file = state.get("output_file")
+            if output_file:
+                Path(output_file).expanduser().write_text(output + "\n")
+                click.echo(f"Output written to {output_file}")
+
             # Use pager for output taller than terminal
+            pager_enabled = state.get("pager_enabled", True)
             try:
                 term_height = os.get_terminal_size().lines
             except OSError:
                 term_height = 24
-            if output.count("\n") > term_height - 4:
+            if pager_enabled and output.count("\n") > term_height - 4:
                 click.echo_via_pager(output + "\n")
             else:
                 click.echo(output)
@@ -253,8 +272,9 @@ def _run_repl(conn: Connection, fmt: str) -> None:
 @click.option("-e", "--execute", default=None, help="Execute SQL and exit")
 @click.option("-f", "--file", "sql_file", default=None, help="Execute SQL file and exit")
 @click.option("--format", "fmt", default="table", type=click.Choice(["table", "json", "csv", "vertical"]))
+@click.option("--row-limit", default=1000, help="Max rows to fetch (0 = no limit, default 1000)")
 @click.version_option(__version__)
-def cli(local, persist_to, db, database_id, execute, sql_file, fmt):
+def cli(local, persist_to, db, database_id, execute, sql_file, fmt, row_limit):
     """Interactive SQL REPL for Cloudflare D1 databases."""
     try:
         conn = _create_connection(local, persist_to, db, database_id)
@@ -272,7 +292,7 @@ def cli(local, persist_to, db, database_id, execute, sql_file, fmt):
             conn.close()
             return
 
-        _run_repl(conn, fmt)
+        _run_repl(conn, fmt, row_limit=row_limit)
 
     except click.ClickException:
         raise
