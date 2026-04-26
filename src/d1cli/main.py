@@ -24,7 +24,7 @@ from .connection import (
     Connection, LocalConnection, RemoteConnection,
     resolve_local_d1_path,
 )
-from .formatter import format_result
+from .formatter import format_result, format_result_iter
 from .style import D1CLI_STYLE
 from .wrangler import find_wrangler_config, parse_d1_bindings, read_wrangler_auth
 
@@ -215,18 +215,21 @@ def _run_repl(conn: Connection, fmt: str) -> None:
 
             result = conn.execute(sql)
             effective_fmt = "vertical" if state["expanded"] else state["format"]
-            output = format_result(result, effective_fmt)
 
-            # Use pager for large output
-            try:
-                term_height = os.get_terminal_size().lines
-            except OSError:
-                term_height = 24
-            lines = output.split("\n")
-            if len(lines) > term_height - 4:
-                click.echo_via_pager(output + "\n")
+            # Large results: stream to pager line-by-line (never build full string)
+            LARGE_THRESHOLD = 1000
+            if result.row_count > LARGE_THRESHOLD:
+                click.echo_via_pager(format_result_iter(result, effective_fmt))
             else:
-                click.echo(output)
+                output = format_result(result, effective_fmt)
+                try:
+                    term_height = os.get_terminal_size().lines
+                except OSError:
+                    term_height = 24
+                if output.count("\n") > term_height - 4:
+                    click.echo_via_pager(output + "\n")
+                else:
+                    click.echo(output)
 
             if state["timing"]:
                 click.secho(f"Time: {result.duration:.2f}ms", fg="bright_black")
