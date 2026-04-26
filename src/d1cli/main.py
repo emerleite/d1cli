@@ -11,6 +11,7 @@ import click
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import DynamicCompleter, ThreadedCompleter
+from prompt_toolkit.enums import DEFAULT_BUFFER
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import PygmentsLexer
@@ -164,7 +165,7 @@ def _run_repl(conn: Connection, fmt: str) -> None:
 
     session: PromptSession = PromptSession(
         lexer=PygmentsLexer(SqlLexer),
-        completer=ThreadedCompleter(DynamicCompleter(lambda: completer)),
+        completer=DynamicCompleter(lambda: completer),
         complete_while_typing=True,
         auto_suggest=AutoSuggestFromHistory(),
         history=FileHistory(str(history_path)),
@@ -173,7 +174,7 @@ def _run_repl(conn: Connection, fmt: str) -> None:
         bottom_toolbar=_make_toolbar(conn, state),
         key_bindings=_make_bindings(),
         prompt_continuation=lambda width, line_number, is_soft_wrap: "." * (width - 1) + " ",
-        reserve_space_for_menu=6,
+        reserve_space_for_menu=8,
     )
 
     click.echo(f"d1cli v{__version__}")
