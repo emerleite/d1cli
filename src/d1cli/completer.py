@@ -61,6 +61,8 @@ BACKSLASH_COMMANDS = {
     "\\n": "List or execute named queries",
     "\\ns": "Save a named query",
     "\\nd": "Delete a named query",
+    "\\conninfo": "Show connection details",
+    "\\watch": "Re-execute query every N seconds",
     "\\#": "Refresh auto-completions",
     "\\refresh": "Refresh auto-completions",
     "\\?": "Show commands",

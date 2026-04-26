@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import click
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.completion import DynamicCompleter, ThreadedCompleter
-from prompt_toolkit.enums import DEFAULT_BUFFER
+from prompt_toolkit.completion import DynamicCompleter
+from prompt_toolkit.enums import EditingMode
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import PygmentsLexer
@@ -20,6 +22,7 @@ from pygments.lexers.sql import SqlLexer
 from . import __version__
 from .commands import handle_command
 from .completer import D1Completer
+from .config import load_config, save_config
 from .connection import (
     Connection, LocalConnection, RemoteConnection,
     resolve_local_d1_path,
@@ -28,15 +31,22 @@ from .formatter import format_result
 from .style import D1CLI_STYLE
 from .wrangler import find_wrangler_config, parse_d1_bindings, read_wrangler_auth
 
+# Auto-configure LESS for colors and horizontal scrolling
+if "LESS" not in os.environ:
+    os.environ["LESS"] = "-SRXF"
+
+DESTRUCTIVE_PATTERN = re.compile(
+    r"^\s*(DROP|DELETE|TRUNCATE|ALTER\s+TABLE\s+\w+\s+DROP)\b",
+    re.IGNORECASE,
+)
+
 
 def _create_connection(local: bool, persist_to: str | None, db: str | None, database_id: str | None) -> Connection:
     config_path = find_wrangler_config()
     bindings = parse_d1_bindings(config_path) if config_path else []
 
     if not local:
-        # Remote mode
         api_token = os.environ.get("CF_API_TOKEN") or os.environ.get("CLOUDFLARE_API_TOKEN")
-
         if not api_token:
             auth = read_wrangler_auth()
             if auth:
@@ -62,7 +72,6 @@ def _create_connection(local: bool, persist_to: str | None, db: str | None, data
         binding = _pick_binding(bindings, db, database_id)
         return RemoteConnection(account_id, binding.database_id, api_token, binding.database_name)
 
-    # Local mode
     binding = _pick_binding(bindings, db, database_id)
     sqlite_path = resolve_local_d1_path(binding.database_id, persist_to)
     if not sqlite_path:
@@ -114,27 +123,30 @@ def _detect_account_id(api_token: str) -> str | None:
 
 def _make_toolbar(conn: Connection, state: dict):
     def toolbar():
-        mode = conn.mode
-        fmt = state["format"]
-        timing = "on" if state["timing"] else "off"
-        expanded = "on" if state["expanded"] else "off"
-        return f" {conn.name} ({mode}) | format: {fmt} | timing: {timing} | expanded: {expanded}"
+        parts = [
+            f" {conn.name} ({conn.mode})",
+            f"format: {state['format']}",
+        ]
+        if state["timing"]:
+            parts.append("timing: on")
+        if state["expanded"]:
+            parts.append("expanded: on")
+        if state.get("vi_mode"):
+            parts.append("vi")
+        return " | ".join(parts)
     return toolbar
 
 
-def _make_bindings():
+def _make_bindings(state: dict):
     """Key bindings modeled on pgcli/key_bindings.py."""
     bindings = KeyBindings()
 
     @bindings.add("enter")
     def handle_enter(event):
         buf = event.current_buffer
-
-        # If completion menu is open, accept the selected completion
         if buf.complete_state:
             buf.complete_state = None
             return
-
         text = buf.text.strip()
         if not text or text.startswith("\\") or text.lower() in ("exit", "quit") or text.endswith(";"):
             buf.validate_and_handle()
@@ -146,22 +158,54 @@ def _make_bindings():
         """Force autocompletion at cursor — matches pgcli behavior."""
         buf = event.current_buffer
         doc = buf.document
-
         if doc.on_first_line or doc.current_line.strip():
             if buf.complete_state:
                 buf.complete_next()
             else:
                 buf.start_completion(select_first=True)
 
+    @bindings.add("f2")
+    def toggle_smart_completion(event):
+        state["smart_completion"] = not state.get("smart_completion", True)
+        status = "on" if state["smart_completion"] else "off"
+        # Can't easily show message from keybinding, toggle takes effect on next completion
+
+    @bindings.add("f3")
+    def toggle_multiline(event):
+        state["multi_line"] = not state.get("multi_line", True)
+
+    @bindings.add("f4")
+    def toggle_vi_mode(event):
+        state["vi_mode"] = not state.get("vi_mode", False)
+        if state["vi_mode"]:
+            event.app.editing_mode = EditingMode.VI
+        else:
+            event.app.editing_mode = EditingMode.EMACS
+
     return bindings
 
 
-def _run_repl(conn: Connection, fmt: str, row_limit: int = 1000) -> None:
+def _confirm_destructive(sql: str, state: dict) -> bool:
+    """Warn before destructive queries. Returns True to proceed, False to cancel."""
+    if not state.get("destructive_warning", True):
+        return True
+    if not DESTRUCTIVE_PATTERN.match(sql):
+        return True
+    try:
+        click.secho(f"\nYou're about to run a destructive command.", fg="red", bold=True)
+        click.secho(f"  {sql[:100]}{'...' if len(sql) > 100 else ''}", fg="yellow")
+        return click.confirm("Are you sure?", default=False)
+    except (KeyboardInterrupt, EOFError):
+        return False
+
+
+def _run_repl(conn: Connection, state: dict) -> None:
     completer = D1Completer(conn)
-    state = {"format": fmt, "timing": False, "expanded": False, "row_limit": row_limit}
 
     history_path = Path.home() / ".config" / "d1cli" / "history"
     history_path.parent.mkdir(parents=True, exist_ok=True)
+
+    editing_mode = EditingMode.VI if state.get("vi_mode") else EditingMode.EMACS
 
     session: PromptSession = PromptSession(
         lexer=PygmentsLexer(SqlLexer),
@@ -172,14 +216,18 @@ def _run_repl(conn: Connection, fmt: str, row_limit: int = 1000) -> None:
         multiline=True,
         style=D1CLI_STYLE,
         bottom_toolbar=_make_toolbar(conn, state),
-        key_bindings=_make_bindings(),
+        key_bindings=_make_bindings(state),
         prompt_continuation=lambda width, line_number, is_soft_wrap: "." * (width - 1) + " ",
         reserve_space_for_menu=8,
+        editing_mode=editing_mode,
+        search_ignore_case=True,
     )
 
-    click.echo(f"d1cli v{__version__}")
-    click.echo(f"Connected to {conn.name} ({conn.mode})")
-    click.echo("Type \\? for help, \\q to quit.\n")
+    if not state.get("less_chatty"):
+        click.echo(f"d1cli v{__version__}")
+        click.echo(f"Connected to {conn.name} ({conn.mode})")
+        click.echo("Type \\? for help, \\q to quit.")
+        click.echo("F2: Smart Completion | F3: Multiline | F4: Vi/Emacs\n")
 
     while True:
         try:
@@ -199,14 +247,18 @@ def _run_repl(conn: Connection, fmt: str, row_limit: int = 1000) -> None:
             try:
                 output = handle_command(text, conn, state)
                 if output is None:
-                    break  # quit
+                    break
                 click.echo(output)
 
-                # Handle refresh request
                 if state.pop("_refresh_completions", False):
                     completer.refresh()
 
-                # Handle deferred SQL execution (\e, \i, \n)
+                # Handle \watch
+                watch_interval = state.pop("_watch", None)
+                if watch_interval and state.get("last_query"):
+                    _watch_query(conn, state, watch_interval)
+                    continue
+
                 deferred_sql = state.pop("_execute_sql", None)
                 if deferred_sql:
                     text = deferred_sql
@@ -216,52 +268,87 @@ def _run_repl(conn: Connection, fmt: str, row_limit: int = 1000) -> None:
                 click.secho(f"Error: {e}", fg="red")
                 continue
 
-        # SQL — strip trailing semicolon for execution
+        # SQL
         sql = text.rstrip(";").strip() if text.endswith(";") else text
         state["last_query"] = sql
 
-        try:
-            # Refresh schema on DDL
-            if sql.strip().upper().startswith(("CREATE", "ALTER", "DROP")):
-                completer._loaded = False
+        _execute_and_display(conn, sql, state, completer)
 
-            row_limit = state.get("row_limit", 1000)
-            result = conn.execute(sql, row_limit=row_limit)
-            effective_fmt = "vertical" if state["expanded"] else state["format"]
-
-            output = format_result(result, effective_fmt)
-
-            if result.truncated:
-                click.secho(
-                    f"Results truncated to {row_limit} rows (row-limit={row_limit}).",
-                    fg="red",
-                )
-
-            # Output to file if \o is active
-            output_file = state.get("output_file")
-            if output_file:
-                Path(output_file).expanduser().write_text(output + "\n")
-                click.echo(f"Output written to {output_file}")
-
-            # Use pager for output taller than terminal
-            pager_enabled = state.get("pager_enabled", True)
-            try:
-                term_height = os.get_terminal_size().lines
-            except OSError:
-                term_height = 24
-            if pager_enabled and output.count("\n") > term_height - 4:
-                click.echo_via_pager(output + "\n")
-            else:
-                click.echo(output)
-
-            if state["timing"]:
-                click.secho(f"Time: {result.duration:.2f}ms", fg="bright_black")
-
-        except Exception as e:
-            click.secho(f"Error: {e}", fg="red")
-
-    click.echo("Bye!")
+    if not state.get("less_chatty"):
+        click.echo("Bye!")
     conn.close()
+    save_config(state)
+
+
+def _execute_and_display(conn: Connection, sql: str, state: dict, completer: D1Completer | None = None) -> None:
+    """Execute SQL and display results."""
+    # Destructive warning
+    if not _confirm_destructive(sql, state):
+        click.secho("Cancelled.", fg="yellow")
+        return
+
+    try:
+        if completer and sql.strip().upper().startswith(("CREATE", "ALTER", "DROP")):
+            completer._loaded = False
+
+        row_limit = state.get("row_limit", 1000)
+        result = conn.execute(sql, row_limit=row_limit)
+        effective_fmt = "vertical" if state.get("expanded") else state.get("format", "table")
+
+        output = format_result(result, effective_fmt)
+
+        if result.truncated:
+            click.secho(
+                f"Results truncated to {row_limit} rows (--row-limit={row_limit}).",
+                fg="red",
+            )
+
+        # Output to file if \o is active
+        output_file = state.get("output_file")
+        if output_file:
+            Path(output_file).expanduser().write_text(output + "\n")
+            click.echo(f"Output written to {output_file}")
+
+        # Pager
+        pager_enabled = state.get("pager_enabled", True)
+        try:
+            term_height = os.get_terminal_size().lines
+        except OSError:
+            term_height = 24
+        if pager_enabled and output.count("\n") > term_height - 4:
+            click.echo_via_pager(output + "\n")
+        else:
+            click.echo(output)
+
+        if state.get("timing"):
+            click.secho(f"Time: {result.duration:.2f}ms", fg="bright_black")
+
+        if completer and sql.strip().upper().startswith(("CREATE", "ALTER", "DROP")):
+            completer.refresh()
+
+    except Exception as e:
+        click.secho(f"Error: {e}", fg="red")
+        if state.get("on_error") == "RESUME":
+            pass  # continue
+        # STOP is default — just return to prompt
+
+
+def _watch_query(conn: Connection, state: dict, interval: float) -> None:
+    """Re-execute the last query every N seconds until Ctrl+C."""
+    sql = state.get("last_query")
+    if not sql:
+        click.secho("No query to watch.", fg="yellow")
+        return
+
+    click.echo(f"Watching every {interval}s. Press Ctrl+C to stop.\n")
+    try:
+        while True:
+            click.clear()
+            click.secho(f"Every {interval}s  —  {datetime.now().strftime('%H:%M:%S')}\n", fg="bright_black")
+            _execute_and_display(conn, sql, state)
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        click.echo("\nWatch stopped.")
 
 
 @click.command()
@@ -271,28 +358,41 @@ def _run_repl(conn: Connection, fmt: str, row_limit: int = 1000) -> None:
 @click.option("--database-id", default=None, help="D1 database ID")
 @click.option("-e", "--execute", default=None, help="Execute SQL and exit")
 @click.option("-f", "--file", "sql_file", default=None, help="Execute SQL file and exit")
-@click.option("--format", "fmt", default="table", type=click.Choice(["table", "json", "csv", "vertical"]))
-@click.option("--row-limit", default=1000, help="Max rows to fetch (0 = no limit, default 1000)")
+@click.option("--format", "fmt", default=None, type=click.Choice(["table", "json", "csv", "vertical"]))
+@click.option("--row-limit", default=None, type=int, help="Max rows (0=no limit, default 1000)")
+@click.option("--vi/--emacs", "vi_mode", default=None, help="Vi or Emacs editing mode")
+@click.option("--less-chatty", is_flag=True, default=False, help="Suppress banner")
 @click.version_option(__version__)
-def cli(local, persist_to, db, database_id, execute, sql_file, fmt, row_limit):
+def cli(local, persist_to, db, database_id, execute, sql_file, fmt, row_limit, vi_mode, less_chatty):
     """Interactive SQL REPL for Cloudflare D1 databases."""
     try:
+        # Load config, override with CLI flags
+        state = load_config()
+        if fmt is not None:
+            state["format"] = fmt
+        if row_limit is not None:
+            state["row_limit"] = row_limit
+        if vi_mode is not None:
+            state["vi_mode"] = vi_mode
+        if less_chatty:
+            state["less_chatty"] = True
+
         conn = _create_connection(local, persist_to, db, database_id)
 
         if execute:
             result = conn.execute(execute)
-            click.echo(format_result(result, fmt))
+            click.echo(format_result(result, state.get("format", "table")))
             conn.close()
             return
 
         if sql_file:
             sql = Path(sql_file).read_text()
             result = conn.execute(sql)
-            click.echo(format_result(result, fmt))
+            click.echo(format_result(result, state.get("format", "table")))
             conn.close()
             return
 
-        _run_repl(conn, fmt, row_limit=row_limit)
+        _run_repl(conn, state)
 
     except click.ClickException:
         raise

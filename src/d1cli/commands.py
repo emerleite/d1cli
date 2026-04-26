@@ -112,6 +112,20 @@ def handle_command(text: str, conn: Connection, state: dict) -> str | None:
             return "Usage: \\nd <name>"
         return _delete_named_query(arg)
 
+    # --- Connection info ---
+    elif cmd_lower == "\\conninfo":
+        return _conninfo(conn)
+
+    # --- Watch ---
+    elif cmd_lower == "\\watch":
+        if not arg:
+            return "Usage: \\watch <seconds>"
+        try:
+            state["_watch"] = float(arg)
+            return ""
+        except ValueError:
+            return "Usage: \\watch <seconds>"
+
     # --- Help & Quit ---
     elif cmd_lower in ("\\?", "\\help"):
         return _help()
@@ -119,6 +133,19 @@ def handle_command(text: str, conn: Connection, state: dict) -> str | None:
         return None  # signals quit
     else:
         return f"Unknown command: {cmd}\nType \\? for help."
+
+
+def _conninfo(conn: Connection) -> str:
+    lines = [
+        f"Database: {conn.name}",
+        f"Mode: {conn.mode}",
+    ]
+    if conn.mode == "local" and hasattr(conn, "_db"):
+        lines.append(f"File: {conn._db.execute('PRAGMA database_list').fetchone()[2]}")
+    if conn.mode == "remote" and hasattr(conn, "_account_id"):
+        lines.append(f"Account: {conn._account_id}")
+        lines.append(f"Database ID: {conn._database_id}")
+    return "\n".join(lines)
 
 
 def _list_tables(conn: Connection) -> str:
@@ -309,12 +336,14 @@ def _help() -> str:
   \\di [table]      List indexes.
   \\dv              List views.
   \\schema <table>  Show CREATE statement.
+  \\conninfo        Show connection details.
 
   \\T <format>      Change output format (table, json, csv, vertical).
   \\x               Toggle expanded output.
   \\timing          Toggle query timing.
   \\pager [cmd]     Set PAGER. \\pager off to disable.
   \\o [file]        Send output to file. \\o to stop.
+  \\watch <sec>     Re-execute last query every N seconds.
 
   \\e               Edit last query in $EDITOR.
   \\i <file>        Execute commands from file.
@@ -326,4 +355,11 @@ def _help() -> str:
 
   \\# / \\refresh    Refresh auto-completions.
   \\? / \\help       Show this help.
-  \\q / exit        Quit d1cli."""
+  \\q / exit        Quit d1cli.
+
+Key bindings:
+  F2               Toggle smart completion.
+  F3               Toggle multiline mode.
+  F4               Toggle Vi/Emacs mode.
+  Tab              Force auto-completion.
+  Ctrl+R           Search history."""
