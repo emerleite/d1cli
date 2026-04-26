@@ -10,7 +10,7 @@ from pathlib import Path
 import click
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-from prompt_toolkit.completion import ThreadedCompleter
+from prompt_toolkit.completion import DynamicCompleter, ThreadedCompleter
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import PygmentsLexer
@@ -122,22 +122,19 @@ def _make_toolbar(conn: Connection, state: dict):
 
 
 def _make_bindings():
-    """Key bindings:
-    - Enter: submit when SQL is complete (ends with ;) or is a command
-    - Tab: trigger completion menu
-    """
+    """Key bindings modeled on pgcli/key_bindings.py."""
     bindings = KeyBindings()
 
     @bindings.add("enter")
     def handle_enter(event):
         buf = event.current_buffer
-        text = buf.text.strip()
 
-        # If completion menu is open, Enter selects the completion
+        # If completion menu is open, accept the selected completion
         if buf.complete_state:
             buf.complete_state = None
             return
 
+        text = buf.text.strip()
         if not text or text.startswith("\\") or text.lower() in ("exit", "quit") or text.endswith(";"):
             buf.validate_and_handle()
         else:
@@ -145,13 +142,15 @@ def _make_bindings():
 
     @bindings.add("tab")
     def handle_tab(event):
+        """Force autocompletion at cursor — matches pgcli behavior."""
         buf = event.current_buffer
-        if buf.complete_state:
-            # Cycle through completions
-            buf.complete_next()
-        else:
-            # Start completion
-            buf.start_completion()
+        doc = buf.document
+
+        if doc.on_first_line or doc.current_line.strip():
+            if buf.complete_state:
+                buf.complete_next()
+            else:
+                buf.start_completion(select_first=True)
 
     return bindings
 
@@ -165,7 +164,7 @@ def _run_repl(conn: Connection, fmt: str) -> None:
 
     session: PromptSession = PromptSession(
         lexer=PygmentsLexer(SqlLexer),
-        completer=ThreadedCompleter(completer),
+        completer=ThreadedCompleter(DynamicCompleter(lambda: completer)),
         complete_while_typing=True,
         auto_suggest=AutoSuggestFromHistory(),
         history=FileHistory(str(history_path)),
