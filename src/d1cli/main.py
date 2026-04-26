@@ -11,7 +11,9 @@ import click
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import ThreadedCompleter
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import PygmentsLexer
 from pygments.lexers.sql import SqlLexer
 
@@ -120,6 +122,29 @@ def _make_toolbar(conn: Connection, state: dict):
     return toolbar
 
 
+def _make_bindings():
+    """Create key bindings: Enter submits when SQL is complete (ends with ;)
+    or input is a backslash command. Otherwise inserts a newline."""
+    bindings = KeyBindings()
+
+    @bindings.add("enter")
+    def handle_enter(event):
+        buf = event.current_buffer
+        text = buf.text.strip()
+
+        # Empty → submit (no-op)
+        # Backslash command → submit immediately
+        # exit/quit → submit
+        # Ends with ; → submit (SQL complete)
+        # Otherwise → insert newline for multi-line
+        if not text or text.startswith("\\") or text.lower() in ("exit", "quit") or text.endswith(";"):
+            buf.validate_and_handle()
+        else:
+            buf.insert_text("\n")
+
+    return bindings
+
+
 def _run_repl(conn: Connection, fmt: str) -> None:
     completer = D1Completer(conn)
     state = {"format": fmt, "timing": False, "expanded": False}
@@ -136,6 +161,8 @@ def _run_repl(conn: Connection, fmt: str) -> None:
         multiline=True,
         style=D1CLI_STYLE,
         bottom_toolbar=_make_toolbar(conn, state),
+        key_bindings=_make_bindings(),
+        prompt_continuation=lambda width, line_number, is_soft_wrap: "." * (width - 1) + " ",
     )
 
     click.echo(f"d1cli v{__version__}")
@@ -179,7 +206,10 @@ def _run_repl(conn: Connection, fmt: str) -> None:
             output = format_result(result, effective_fmt)
 
             # Use pager for large output
-            term_height = click.get_terminal_size()[1]
+            try:
+                term_height = os.get_terminal_size().lines
+            except OSError:
+                term_height = 24
             lines = output.split("\n")
             if len(lines) > term_height - 4:
                 click.echo_via_pager(output + "\n")
