@@ -1,0 +1,36 @@
+[project]
+name = "d1cli"
+version = "0.1.0"
+description = "Interactive SQL REPL for Cloudflare D1 databases"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "emerleite", email = "emerleite@gmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "prompt-toolkit>=3.0",
+    "pygments>=2.0",
+    "cli-helpers[styles]>=2.4.0",
+    "click>=8.0",
+    "httpx>=0.24",
+    "tomli>=2.0;python_version<'3.11'",
+]
+
+[project.scripts]
+d1cli = "d1cli.main:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/d1cli"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
