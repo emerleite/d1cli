@@ -11,7 +11,6 @@ import click
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import ThreadedCompleter
-from prompt_toolkit.filters import Condition
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import PygmentsLexer
@@ -123,8 +122,10 @@ def _make_toolbar(conn: Connection, state: dict):
 
 
 def _make_bindings():
-    """Create key bindings: Enter submits when SQL is complete (ends with ;)
-    or input is a backslash command. Otherwise inserts a newline."""
+    """Key bindings:
+    - Enter: submit when SQL is complete (ends with ;) or is a command
+    - Tab: trigger completion menu
+    """
     bindings = KeyBindings()
 
     @bindings.add("enter")
@@ -132,15 +133,25 @@ def _make_bindings():
         buf = event.current_buffer
         text = buf.text.strip()
 
-        # Empty → submit (no-op)
-        # Backslash command → submit immediately
-        # exit/quit → submit
-        # Ends with ; → submit (SQL complete)
-        # Otherwise → insert newline for multi-line
+        # If completion menu is open, Enter selects the completion
+        if buf.complete_state:
+            buf.complete_state = None
+            return
+
         if not text or text.startswith("\\") or text.lower() in ("exit", "quit") or text.endswith(";"):
             buf.validate_and_handle()
         else:
             buf.insert_text("\n")
+
+    @bindings.add("tab")
+    def handle_tab(event):
+        buf = event.current_buffer
+        if buf.complete_state:
+            # Cycle through completions
+            buf.complete_next()
+        else:
+            # Start completion
+            buf.start_completion()
 
     return bindings
 
@@ -163,6 +174,7 @@ def _run_repl(conn: Connection, fmt: str) -> None:
         bottom_toolbar=_make_toolbar(conn, state),
         key_bindings=_make_bindings(),
         prompt_continuation=lambda width, line_number, is_soft_wrap: "." * (width - 1) + " ",
+        reserve_space_for_menu=6,
     )
 
     click.echo(f"d1cli v{__version__}")
