@@ -37,6 +37,7 @@ class QueryResult:
     row_count: int
     changes: int
     duration: float  # milliseconds
+    truncated: bool = False
 
 
 TABLES_SQL = """
@@ -83,17 +84,26 @@ class LocalConnection(Connection):
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA journal_mode=WAL")
 
-    def execute(self, sql: str) -> QueryResult:
+    def execute(self, sql: str, row_limit: int = 0) -> QueryResult:
         start = time.perf_counter()
         cursor = self._db.execute(sql)
         is_read = sql.strip().upper().startswith(("SELECT", "PRAGMA", "EXPLAIN", "WITH"))
 
         if is_read:
-            rows_raw = cursor.fetchall()
+            if row_limit > 0:
+                rows_raw = cursor.fetchmany(row_limit + 1)
+                truncated = len(rows_raw) > row_limit
+                if truncated:
+                    rows_raw = rows_raw[:row_limit]
+            else:
+                rows_raw = cursor.fetchall()
+                truncated = False
             columns = [desc[0] for desc in cursor.description] if cursor.description else []
             rows = [dict(r) for r in rows_raw]
             duration = (time.perf_counter() - start) * 1000
-            return QueryResult(columns=columns, rows=rows, row_count=len(rows), changes=0, duration=duration)
+            result = QueryResult(columns=columns, rows=rows, row_count=len(rows), changes=0, duration=duration)
+            result.truncated = truncated
+            return result
 
         self._db.commit()
         duration = (time.perf_counter() - start) * 1000

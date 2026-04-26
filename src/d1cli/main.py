@@ -24,7 +24,7 @@ from .connection import (
     Connection, LocalConnection, RemoteConnection,
     resolve_local_d1_path,
 )
-from .formatter import format_result, format_result_iter
+from .formatter import format_result
 from .style import D1CLI_STYLE
 from .wrangler import find_wrangler_config, parse_d1_bindings, read_wrangler_auth
 
@@ -213,23 +213,27 @@ def _run_repl(conn: Connection, fmt: str) -> None:
             if sql.strip().upper().startswith(("CREATE", "ALTER", "DROP")):
                 completer._loaded = False
 
-            result = conn.execute(sql)
+            row_limit = state.get("row_limit", 1000)
+            result = conn.execute(sql, row_limit=row_limit)
             effective_fmt = "vertical" if state["expanded"] else state["format"]
 
-            # Large results: stream to pager line-by-line (never build full string)
-            LARGE_THRESHOLD = 1000
-            if result.row_count > LARGE_THRESHOLD:
-                click.echo_via_pager(format_result_iter(result, effective_fmt))
+            output = format_result(result, effective_fmt)
+
+            if result.truncated:
+                click.secho(
+                    f"Results truncated to {row_limit} rows. Use LIMIT or \\limit 0 to disable.",
+                    fg="red",
+                )
+
+            # Use pager for output taller than terminal
+            try:
+                term_height = os.get_terminal_size().lines
+            except OSError:
+                term_height = 24
+            if output.count("\n") > term_height - 4:
+                click.echo_via_pager(output + "\n")
             else:
-                output = format_result(result, effective_fmt)
-                try:
-                    term_height = os.get_terminal_size().lines
-                except OSError:
-                    term_height = 24
-                if output.count("\n") > term_height - 4:
-                    click.echo_via_pager(output + "\n")
-                else:
-                    click.echo(output)
+                click.echo(output)
 
             if state["timing"]:
                 click.secho(f"Time: {result.duration:.2f}ms", fg="bright_black")

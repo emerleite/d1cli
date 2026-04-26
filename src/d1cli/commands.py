@@ -41,6 +41,15 @@ def handle_command(text: str, conn: Connection, state: dict) -> str | None:
     elif cmd == "\\timing":
         state["timing"] = not state["timing"]
         return f"Timing is {'on' if state['timing'] else 'off'}"
+    elif cmd == "\\limit":
+        if not arg:
+            current = state.get("row_limit", 1000)
+            return f"Current row limit: {current} (0 = no limit)"
+        try:
+            state["row_limit"] = int(arg)
+            return f"Row limit set to: {arg}" + (" (no limit)" if int(arg) == 0 else "")
+        except ValueError:
+            return "Usage: \\limit <number> (0 for no limit)"
     elif cmd in ("\\?", "\\help"):
         return _help()
     elif cmd in ("\\q", "exit", "quit"):
@@ -124,6 +133,7 @@ def _help() -> str:
   \\T <format>      Set output format (table, json, csv, vertical)
   \\x               Toggle expanded (vertical) output
   \\timing          Toggle query timing
+  \\limit [n]       Set row limit (default 1000, 0 = no limit)
   \\? or \\help      Show this help
   \\q or exit       Quit
 
