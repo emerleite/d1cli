@@ -187,32 +187,68 @@ jobs:
           GIT_REF: ${{ github.ref }}
         run: |
           TAG_VERSION="${GIT_REF#refs/tags/v}"
-          SHA256=$(curl -sL "https://pypi.org/pypi/cloudflare-d1cli/${TAG_VERSION}/json" | python3 -c "import sys,json; d=json.load(sys.stdin); print([u for u in d['urls'] if u['packagetype']=='sdist'][0]['digests']['sha256'])")
-          URL=$(curl -sL "https://pypi.org/pypi/cloudflare-d1cli/${TAG_VERSION}/json" | python3 -c "import sys,json; d=json.load(sys.stdin); print([u for u in d['urls'] if u['packagetype']=='sdist'][0]['url'])")
 
-          cat > homebrew-tap/Formula/d1cli.rb << FORMULA
-          class D1cli < Formula
+          python3 << 'PYSCRIPT'
+          import json, urllib.request, os
+
+          version = os.environ["GIT_REF"].replace("refs/tags/v", "")
+
+          def get_sdist(pkg):
+              data = json.loads(urllib.request.urlopen(f"https://pypi.org/pypi/{pkg}/json").read())
+              ver = data["info"]["version"]
+              for u in data["urls"]:
+                  if u["packagetype"] == "sdist":
+                      return u["url"], u["digests"]["sha256"]
+              return None, None
+
+          # Main package
+          main_url, main_sha = get_sdist(f"cloudflare-d1cli")
+          # Override with versioned URL
+          data = json.loads(urllib.request.urlopen(f"https://pypi.org/pypi/cloudflare-d1cli/{version}/json").read())
+          for u in data["urls"]:
+              if u["packagetype"] == "sdist":
+                  main_url, main_sha = u["url"], u["digests"]["sha256"]
+
+          deps = [
+              "prompt-toolkit", "pygments", "cli-helpers", "click", "httpx",
+              "tomli-w", "wcwidth", "tabulate", "configobj",
+              "anyio", "certifi", "h11", "httpcore", "idna",
+          ]
+
+          resources = ""
+          for pkg in deps:
+              url, sha = get_sdist(pkg)
+              if url:
+                  resources += f'  resource "{pkg}" do\n'
+                  resources += f'    url "{url}"\n'
+                  resources += f'    sha256 "{sha}"\n'
+                  resources += f'  end\n\n'
+
+          formula = f'''class D1cli < Formula
             include Language::Python::Virtualenv
 
             desc "Interactive SQL REPL for Cloudflare D1 databases"
             homepage "https://github.com/emerleite/d1cli"
-            url "${URL}"
-            sha256 "${SHA256}"
+            url "{main_url}"
+            sha256 "{main_sha}"
             license "MIT"
 
             depends_on "python@3.12"
 
+          {resources}
             def install
-              venv = virtualenv_create(libexec, "python3.12")
-              venv.pip_install "cloudflare-d1cli==${TAG_VERSION}"
-              bin.install_symlink Dir[libexec/"bin/d1cli"]
+              virtualenv_install_with_resources
             end
 
             test do
-              assert_match "d1cli", shell_output("#{bin}/d1cli --version")
+              assert_match "d1cli", shell_output("#{{bin}}/d1cli --version")
             end
           end
-          FORMULA
+          '''
+
+          with open("homebrew-tap/Formula/d1cli.rb", "w") as f:
+              f.write(formula)
+          PYSCRIPT
 
       - name: Commit formula update
         run: |
