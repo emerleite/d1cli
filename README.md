@@ -188,28 +188,63 @@ id,whatsapp,type
 1,5521999999999,text
 ```
 
+## Row Limit
+
+By default, d1cli limits query results to **1000 rows** to prevent freezing on large tables. This works differently for local and remote:
+
+- **Local mode**: Uses `fetchmany()` — only reads 1000 rows from SQLite, fast even on million-row tables
+- **Remote mode**: Appends `LIMIT 1001` to your SQL — prevents the D1 API from serializing huge responses over HTTP
+
+When results are truncated, you'll see:
+```
+Results limited to 1000 rows. Add LIMIT to your query or use --row-limit 0 for all rows.
+```
+
+Your own `LIMIT` always takes priority — `SELECT * FROM users LIMIT 10;` returns exactly 10 rows regardless of row_limit.
+
+```bash
+# Change the default
+d1cli --row-limit 5000     # higher limit
+d1cli --row-limit 0        # no limit (careful with large tables)
+```
+
+Or set it permanently in `~/.config/d1cli/config.json`:
+```json
+{ "row_limit": 5000 }
+```
+
+### Cloudflare D1 Limits
+
+For reference, D1 has these limits:
+- Max query duration: **30 seconds**
+- Max SQL size: **100 KB**
+- Max row/value size: **2 MB**
+- Max database size: **10 GB** (paid) / **500 MB** (free)
+
 ## Configuration
 
-Settings are stored in `~/.config/d1cli/config.json` and persist across sessions.
+A config file is auto-generated at `~/.config/d1cli/config.json` on first run with commented defaults. Settings persist across sessions.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `smart_completion` | `true` | Context-aware completion |
+| `smart_completion` | `true` | Context-aware completion (F2 to toggle) |
 | `keyword_casing` | `"auto"` | Keyword case: `auto`, `upper`, `lower` |
 | `table_format` | `"table"` | Default output format |
 | `expanded` | `false` | Expanded (vertical) output |
-| `auto_expand` | `false` | Auto-switch to vertical when result is wide |
+| `auto_expand` | `true` | Auto-switch to vertical when result is too wide |
 | `timing` | `false` | Show query timing |
-| `row_limit` | `1000` | Max rows to fetch (0 = no limit) |
-| `max_column_width` | `0` | Truncate column values (0 = no limit) |
+| `row_limit` | `1000` | Max rows per query (0 = no limit) |
+| `max_column_width` | `500` | Truncate wide columns (0 = no limit) |
 | `null_string` | `"<null>"` | How NULL values are displayed |
-| `vi` | `false` | Vi editing mode |
+| `vi` | `false` | Vi editing mode (F4 to toggle) |
 | `destructive_warning` | `true` | Warn before DROP/DELETE/TRUNCATE |
 | `pager` | `"less"` | Pager command |
 | `syntax_style` | `"native"` | Pygments color theme |
-| `prompt` | `"\\d(\\m)> "` | Prompt format (`\d`=database, `\m`=mode) |
+| `prompt` | `"\\d> "` | Prompt format (`\d`=database, `\m`=mode) |
 | `less_chatty` | `false` | Suppress welcome banner |
 | `on_error` | `"STOP"` | Error handling: `STOP` or `RESUME` |
+| `verbose_errors` | `false` | Show full traceback on errors |
+| `startup_commands` | `[]` | Commands to run on connect |
 
 ## CLI Options
 

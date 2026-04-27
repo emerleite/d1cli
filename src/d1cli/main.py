@@ -422,7 +422,7 @@ def _execute_and_display(conn: Connection, sql: str, state: dict, completer: D1C
 
         if result.truncated:
             click.secho(
-                f"Results truncated to {row_limit} rows (--row-limit={row_limit}).",
+                f"Results limited to {row_limit} rows. Add LIMIT to your query or use --row-limit 0 for all rows.",
                 fg="red",
             )
 
