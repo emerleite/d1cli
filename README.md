@@ -288,14 +288,32 @@ git clone https://github.com/emerleite/d1cli.git
 cd d1cli
 uv sync --dev
 
-# Run locally
-uv run d1cli --local --persist-to ./db/data/
-
 # Run tests
 uv run pytest -v
 
-# Install in editable mode
+# Run without installing (via uv run)
+uv run d1cli --local --persist-to ./db/data/
+```
+
+### Making `d1cli` available globally
+
+Install in editable mode so changes take effect immediately:
+
+```bash
+# Install into the project venv
 uv pip install -e .
+
+# Option 1: Symlink to a directory in your PATH
+ln -sf $(pwd)/.venv/bin/d1cli ~/.local/bin/d1cli
+
+# Option 2: Add alias to ~/.zshrc (or ~/.bashrc)
+echo 'alias d1cli="~/dev/d1cli/.venv/bin/d1cli"' >> ~/.zshrc
+source ~/.zshrc
+
+# Now run from anywhere
+cd ~/my-project
+d1cli --local --persist-to ./db/data/
+d1cli --remote --db my-database
 ```
 
 ## Inspired By
