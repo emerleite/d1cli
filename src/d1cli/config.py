@@ -184,38 +184,106 @@ def _generate_default_config() -> None:
     """Write default config.toml with comments."""
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text("""\
+# ============================================================================
 # d1cli configuration
 # https://github.com/emerleite/d1cli
 #
-# Edit to customize. Only changed values need to be present.
-# Delete this file to reset to defaults.
+# This file is auto-generated on first run.
+# Uncomment and edit values to customize. Delete this file to reset.
+# ============================================================================
 
 [settings]
-# smart_completion = true     # Context-aware (F2 to toggle)
-# keyword_casing = "auto"     # auto, upper, lower
-# table_format = "table"      # table, csv, json, vertical
-# auto_expand = true          # Vertical when result is too wide
-# null_string = "<null>"      # NULL display string
-# max_column_width = 500      # Truncate wide columns (0 = off)
-# row_limit = 1000            # Max rows per query (0 = no limit)
-# destructive_warning = true  # Confirm DROP/DELETE/TRUNCATE
-# prompt = "\\\\d> "          # \\d=database, \\m=mode
-# syntax_style = "native"     # native, monokai, solarized-dark
-# startup_commands = ["PRAGMA foreign_keys = ON"]
 
-# Connection profiles
-# Use: d1cli -c <name>  or  \\c <name> in REPL
+# ---------- Completion ----------
+# smart_completion = true          # Context-aware suggestions (F2 to toggle)
+# keyword_casing = "auto"          # "auto" matches your input case
+#                                  # "upper" always UPPERCASE
+#                                  # "lower" always lowercase
+
+# ---------- Input ----------
+# multi_line = true                # Enter = newline, ; = submit (F3 to toggle)
+# vi = false                       # Vi editing mode (F4 to toggle)
+
+# ---------- Output ----------
+# table_format = "table"           # "table", "csv", "json", "vertical"
+# expanded = false                 # Vertical output (\\x to toggle)
+# auto_expand = true               # Auto vertical when result is too wide
+# null_string = "<null>"           # How NULL values are displayed
+# max_column_width = 500           # Truncate columns wider than this (0 = off)
+
+# ---------- Query ----------
+# row_limit = 1000                 # Max rows fetched per query (0 = no limit)
+#                                  # Local: uses fetchmany() — fast on huge tables
+#                                  # Remote: appends LIMIT to SQL
+#                                  # Your own LIMIT always takes priority
+# timing = false                   # Show query duration (\\timing to toggle)
+
+# ---------- Pager ----------
+# pager = "less"                   # Pager command (LESS=-SRXF auto-configured)
+# pager_enabled = true             # Auto-page when output > terminal height
+
+# ---------- Safety ----------
+# destructive_warning = true       # Confirm before DROP, DELETE, TRUNCATE
+# on_error = "STOP"                # "STOP" = return to prompt on error
+#                                  # "RESUME" = continue next statement
+
+# ---------- Appearance ----------
+# syntax_style = "native"          # Pygments theme: native, monokai,
+#                                  # solarized-dark, solarized-light, vim
+# prompt = "\\\\d> "               # \\d = database name, \\m = mode (local/remote)
+# less_chatty = false              # Suppress welcome banner and goodbye
+
+# ---------- Errors ----------
+# verbose_errors = false           # Show full traceback + failing SQL (\\v to toggle)
+
+# ---------- Startup ----------
+# Run these commands automatically when d1cli connects.
+# startup_commands = [
+#     "PRAGMA foreign_keys = ON",
+#     "\\timing",
+# ]
+
+
+# ============================================================================
+# Connection Profiles
+# ============================================================================
+#
+# Define named connections to quickly switch between databases.
+#
+# Usage:
+#   d1cli -c prod              # connect from command line
+#   d1cli -c local-dev         # connect to local
+#   \\c staging                 # switch mid-session
+#   \\c                         # list available profiles
+#
+# Authentication:
+#   - api_token is optional — falls back to `wrangler login` auth
+#   - account_id is optional — auto-detected from API
+#   - Config file is chmod 600 for security
+#
+# ---------- Remote connection example ----------
 #
 # [connections.prod]
-# mode = "remote"
-# db = "my-database"
-# # account_id = "..."       # optional, auto-detected from wrangler login
-# # api_token = "..."        # optional, falls back to wrangler login
+# mode = "remote"                  # "remote" = Cloudflare D1 API
+# db = "my-database"               # Database name from wrangler.toml
+# # database_id = "abc-123..."     # Or specify by UUID (no wrangler.toml needed)
+# # account_id = "ef862e..."       # Optional — auto-detected from wrangler login
+# # api_token = "your-token"       # Optional — falls back to wrangler login
 #
-# [connections.local]
-# mode = "local"
-# db = "my-database"
-# persist_to = "./db/data/"
+# ---------- Another remote (with explicit credentials) ----------
+#
+# [connections.staging]
+# mode = "remote"
+# database_id = "def-456-ghi"
+# account_id = "ef862e42c5cf2d39a50def7dc2ff3534"
+# api_token = "your-staging-api-token"
+#
+# ---------- Local connection example ----------
+#
+# [connections.local-dev]
+# mode = "local"                   # "local" = direct SQLite file access
+# db = "my-database"               # Database name from wrangler.toml
+# persist_to = "./db/data/"        # Where wrangler dev stores the SQLite file
 """)
     try:
         CONFIG_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)
