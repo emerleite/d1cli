@@ -16,13 +16,13 @@ Status: `[x]` done, `[ ]` not started, `[~]` partial
 - [x] Auto-complete while typing
 - [x] Tab to force completion
 - [x] Smart completion toggle (F2)
-- [ ] Keyword casing (auto/upper/lower)
-- [ ] Wider completion menu
+- [x] Keyword casing (auto/upper/lower)
+- [x] Wider completion menu (config)
 
 ## Syntax Highlighting
 - [x] SQL highlighting via Pygments SqlLexer
-- [~] Color theme (basic D1CLI_STYLE)
-- [ ] Configurable themes/syntax_style
+- [x] Color theme (configurable)
+- [x] Multiple themes (native, monokai, solarized-dark, etc.)
 
 ## Key Bindings
 - [x] Tab: force completion
@@ -31,7 +31,7 @@ Status: `[x]` done, `[ ]` not started, `[~]` partial
 - [x] F2: toggle smart completion
 - [x] F3: toggle multiline mode
 - [x] F4: toggle vi/emacs mode
-- [ ] Ctrl+Space: force completion (alternative to Tab)
+- [x] Ctrl+Space: force completion (alternative to Tab)
 
 ## Output Formatting
 - [x] Table (ASCII)
@@ -39,9 +39,9 @@ Status: `[x]` done, `[ ]` not started, `[~]` partial
 - [x] JSON
 - [x] Vertical/expanded
 - [x] Row limit with truncation warning
-- [ ] Auto-expand (threshold-based)
-- [ ] Max column width config
-- [ ] NULL string representation config
+- [x] Auto-expand (vertical when result is too wide)
+- [x] Max column width config
+- [x] NULL string representation config (`<null>` default)
 
 ## Pager
 - [x] Auto-pager for large output
@@ -61,16 +61,20 @@ Status: `[x]` done, `[ ]` not started, `[~]` partial
 - [x] smart_completion setting
 - [x] multi_line setting
 - [x] destructive_warning setting
-- [ ] keyword_casing setting
-- [ ] syntax_style setting
+- [x] keyword_casing setting (auto/upper/lower)
+- [x] syntax_style setting (native, monokai, etc.)
 - [x] table_format setting
 - [x] pager setting
 - [x] vi mode setting
 - [x] timing setting
 - [x] row_limit setting
-- [ ] prompt format setting
+- [x] prompt format setting (\d=database, \m=mode)
 - [x] less_chatty setting
 - [x] on_error setting (STOP/RESUME)
+- [x] auto_expand setting
+- [x] max_column_width setting
+- [x] null_string setting
+- [x] wider_completion_menu setting
 
 ## Special Commands
 - [x] \dt — list tables
@@ -125,7 +129,7 @@ Status: `[x]` done, `[ ]` not started, `[~]` partial
 - [x] Bottom toolbar
 - [x] Welcome banner
 - [x] Vi/Emacs mode toggle (F4 + --vi flag)
-- [ ] Custom prompt format
+- [x] Custom prompt format (\d=database, \m=mode)
 
 ## Named Queries
 - [x] Save (\ns)

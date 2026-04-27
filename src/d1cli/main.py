@@ -27,8 +27,8 @@ from .connection import (
     Connection, LocalConnection, RemoteConnection,
     resolve_local_d1_path,
 )
-from .formatter import format_result
-from .style import D1CLI_STYLE
+from .formatter import format_result, is_too_wide
+from .style import get_style
 from .wrangler import find_wrangler_config, parse_d1_bindings, read_wrangler_auth
 
 # Auto-configure LESS for colors and horizontal scrolling
@@ -182,7 +182,21 @@ def _make_bindings(state: dict):
         else:
             event.app.editing_mode = EditingMode.EMACS
 
+    @bindings.add("c-space")
+    def force_completion(event):
+        """Ctrl+Space: force completion (alternative to Tab)."""
+        buf = event.current_buffer
+        if buf.complete_state:
+            buf.complete_next()
+        else:
+            buf.start_completion(select_first=True)
+
     return bindings
+
+
+def _format_prompt(template: str, conn: Connection) -> str:
+    """Format prompt string: \\d=database, \\m=mode."""
+    return template.replace("\\d", conn.name).replace("\\m", conn.mode)
 
 
 def _confirm_destructive(sql: str, state: dict) -> bool:
@@ -200,12 +214,17 @@ def _confirm_destructive(sql: str, state: dict) -> bool:
 
 
 def _run_repl(conn: Connection, state: dict) -> None:
-    completer = D1Completer(conn)
+    completer = D1Completer(conn, state=state)
 
     history_path = Path.home() / ".config" / "d1cli" / "history"
     history_path.parent.mkdir(parents=True, exist_ok=True)
 
     editing_mode = EditingMode.VI if state.get("vi_mode") else EditingMode.EMACS
+
+    style = get_style(
+        syntax_style=state.get("syntax_style", "native"),
+        wider_menu=state.get("wider_completion_menu", False),
+    )
 
     session: PromptSession = PromptSession(
         lexer=PygmentsLexer(SqlLexer),
@@ -214,7 +233,7 @@ def _run_repl(conn: Connection, state: dict) -> None:
         auto_suggest=AutoSuggestFromHistory(),
         history=FileHistory(str(history_path)),
         multiline=True,
-        style=D1CLI_STYLE,
+        style=style,
         bottom_toolbar=_make_toolbar(conn, state),
         key_bindings=_make_bindings(state),
         prompt_continuation=lambda width, line_number, is_soft_wrap: "." * (width - 1) + " ",
@@ -231,7 +250,8 @@ def _run_repl(conn: Connection, state: dict) -> None:
 
     while True:
         try:
-            prompt_str = f"{conn.name}({conn.mode})> "
+            prompt_template = state.get("prompt", "\\d(\\m)> ")
+            prompt_str = _format_prompt(prompt_template, conn)
             text = session.prompt(prompt_str)
         except KeyboardInterrupt:
             continue
@@ -294,8 +314,19 @@ def _execute_and_display(conn: Connection, sql: str, state: dict, completer: D1C
         row_limit = state.get("row_limit", 1000)
         result = conn.execute(sql, row_limit=row_limit)
         effective_fmt = "vertical" if state.get("expanded") else state.get("format", "table")
+        null_string = state.get("null_string", "<null>")
+        max_width = state.get("max_column_width", 0)
 
-        output = format_result(result, effective_fmt)
+        output = format_result(result, effective_fmt, null_string=null_string, max_width=max_width)
+
+        # Auto-expand: switch to vertical if result is too wide
+        if state.get("auto_expand") and effective_fmt != "vertical":
+            try:
+                term_width = os.get_terminal_size().columns
+            except OSError:
+                term_width = 80
+            if is_too_wide(output, term_width):
+                output = format_result(result, "vertical", null_string=null_string, max_width=max_width)
 
         if result.truncated:
             click.secho(

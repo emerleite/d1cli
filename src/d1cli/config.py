@@ -16,12 +16,17 @@ DEFAULTS = {
     "vi": False,
     "timing": False,
     "expanded": False,
+    "auto_expand": False,  # auto-switch to vertical when result is wide
     "row_limit": 1000,
+    "max_column_width": 0,  # 0 = no limit
+    "null_string": "<null>",
     "pager": "less",
     "pager_enabled": True,
     "less_chatty": False,
     "on_error": "STOP",  # STOP or RESUME
-    "syntax_style": "native",
+    "syntax_style": "native",  # native, monokai, solarized-dark, solarized-light
+    "wider_completion_menu": False,
+    "prompt": "\\d(\\m)> ",  # \d=database, \m=mode
 }
 
 

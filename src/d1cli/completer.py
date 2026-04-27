@@ -115,8 +115,9 @@ def _fuzzy_match(partial: str, candidate: str) -> bool:
 
 
 class D1Completer(Completer):
-    def __init__(self, conn: Connection):
+    def __init__(self, conn: Connection, state: dict | None = None):
         self.conn = conn
+        self.state = state or {}
         self.tables: list[str] = []
         self.columns_by_table: dict[str, list[str]] = {}
         self._loaded = False
@@ -141,6 +142,20 @@ class D1Completer(Completer):
         except Exception:
             pass
         return []
+
+    def _apply_casing(self, keyword: str, word: str) -> str:
+        """Apply keyword casing preference (pgcli keyword_casing)."""
+        mode = self.state.get("keyword_casing", "auto")
+        if mode == "upper":
+            return keyword.upper()
+        elif mode == "lower":
+            return keyword.lower()
+        else:  # auto — match user's input case
+            if word and word == word.lower():
+                return keyword.lower()
+            elif word and word == word.upper():
+                return keyword.upper()
+            return keyword  # mixed or empty → keep original (uppercase)
 
     def _all_columns(self) -> list[str]:
         seen = set()
@@ -253,15 +268,15 @@ class D1Completer(Completer):
         if word:
             for f in SQLITE_FUNCTIONS:
                 if f.lower().startswith(word.lower()):
-                    yield Completion(f, -len(word), display_meta="function")
+                    yield Completion(self._apply_casing(f, word), -len(word), display_meta="function")
 
     def _complete_general(self, word: str):
         for kw in SQL_KEYWORDS:
             if not word or kw.lower().startswith(word.lower()):
-                yield Completion(kw, -len(word), display_meta="keyword")
+                yield Completion(self._apply_casing(kw, word), -len(word), display_meta="keyword")
         for f in SQLITE_FUNCTIONS:
             if not word or f.lower().startswith(word.lower()):
-                yield Completion(f, -len(word), display_meta="function")
+                yield Completion(self._apply_casing(f, word), -len(word), display_meta="function")
         for t in self.tables:
             if not word or t.lower().startswith(word.lower()):
                 yield Completion(t, -len(word), display_meta="table")
