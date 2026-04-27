@@ -61,12 +61,22 @@ BACKSLASH_COMMANDS = {
     "\\n": "List or execute named queries",
     "\\ns": "Save a named query",
     "\\nd": "Delete a named query",
+    "\\v": "Toggle verbose errors",
+    "\\c": "Switch database",
     "\\conninfo": "Show connection details",
     "\\watch": "Re-execute query every N seconds",
     "\\#": "Refresh auto-completions",
     "\\refresh": "Refresh auto-completions",
     "\\?": "Show commands",
     "\\q": "Quit d1cli",
+    # SQLite dot-commands (litecli compatibility)
+    ".tables": "List tables",
+    ".schema": "Show CREATE statements",
+    ".indexes": "List indexes",
+    ".databases": "List attached databases",
+    ".views": "List views",
+    ".help": "Show help",
+    ".quit": "Quit",
 }
 
 OUTPUT_FORMATS = ["table", "csv", "json", "vertical"]
@@ -80,7 +90,7 @@ def _extract_tables(sql: str) -> list[str]:
 
 
 def _get_context(text: str) -> str:
-    if text.lstrip().startswith("\\"):
+    if text.lstrip().startswith("\\") or text.lstrip().startswith("."):
         return "backslash"
 
     words = text.split()
@@ -88,7 +98,8 @@ def _get_context(text: str) -> str:
         return "general"
 
     last_word = words[-1]
-    if "." in last_word and not text.endswith(" "):
+    # Dot notation (table.column) — but not dot-commands
+    if "." in last_word and not text.endswith(" ") and not last_word.startswith("."):
         return "dot"
 
     prev_words = words[:-1] if not text.endswith(" ") else words
@@ -132,6 +143,17 @@ class D1Completer(Completer):
             self._loaded = True
         except Exception:
             pass
+
+    def _get_database_names(self) -> list[str]:
+        try:
+            from .wrangler import find_wrangler_config, parse_d1_bindings
+            config = find_wrangler_config()
+            if config:
+                bindings = parse_d1_bindings(config)
+                return [b.database_name for b in bindings]
+        except Exception:
+            pass
+        return []
 
     def _get_named_query_names(self) -> list[str]:
         try:
@@ -203,6 +225,10 @@ class D1Completer(Completer):
                 for f in OUTPUT_FORMATS:
                     if f.startswith(arg_partial.lower()):
                         yield Completion(f, -len(arg_partial), display_meta="format")
+            elif cmd_name == "\\c":
+                for name in self._get_database_names():
+                    if name.lower().startswith(arg_partial.lower()):
+                        yield Completion(name, -len(arg_partial), display_meta="database")
             elif cmd_name == "\\pager":
                 for opt in ("on", "off", "less", "more"):
                     if opt.startswith(arg_partial.lower()):

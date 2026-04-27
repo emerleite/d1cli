@@ -38,6 +38,7 @@ class QueryResult:
     changes: int
     duration: float  # milliseconds
     truncated: bool = False
+    status_message: str = ""  # e.g. "SELECT 5", "INSERT 0 1", "UPDATE 3"
 
 
 TABLES_SQL = """
@@ -87,7 +88,8 @@ class LocalConnection(Connection):
     def execute(self, sql: str, row_limit: int = 0) -> QueryResult:
         start = time.perf_counter()
         cursor = self._db.execute(sql)
-        is_read = sql.strip().upper().startswith(("SELECT", "PRAGMA", "EXPLAIN", "WITH"))
+        stmt_type = sql.strip().split()[0].upper() if sql.strip() else ""
+        is_read = stmt_type in ("SELECT", "PRAGMA", "EXPLAIN", "WITH")
 
         if is_read:
             if row_limit > 0:
@@ -101,13 +103,22 @@ class LocalConnection(Connection):
             columns = [desc[0] for desc in cursor.description] if cursor.description else []
             rows = [dict(r) for r in rows_raw]
             duration = (time.perf_counter() - start) * 1000
-            result = QueryResult(columns=columns, rows=rows, row_count=len(rows), changes=0, duration=duration)
+            status = f"SELECT {len(rows)}"
+            result = QueryResult(
+                columns=columns, rows=rows, row_count=len(rows),
+                changes=0, duration=duration, status_message=status,
+            )
             result.truncated = truncated
             return result
 
         self._db.commit()
         duration = (time.perf_counter() - start) * 1000
-        return QueryResult(columns=[], rows=[], row_count=0, changes=cursor.rowcount, duration=duration)
+        changes = cursor.rowcount
+        status = f"{stmt_type} {changes}" if changes >= 0 else stmt_type
+        return QueryResult(
+            columns=[], rows=[], row_count=0,
+            changes=changes, duration=duration, status_message=status,
+        )
 
     def get_tables(self) -> list[str]:
         cursor = self._db.execute(TABLES_SQL)

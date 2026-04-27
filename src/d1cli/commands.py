@@ -19,10 +19,14 @@ _NAMED_QUERIES_PATH = Path.home() / ".config" / "d1cli" / "named_queries.json"
 
 
 def handle_command(text: str, conn: Connection, state: dict) -> str | None:
-    """Handle a backslash command. Returns output string, or None to quit."""
+    """Handle a backslash or dot command. Returns output string, or None to quit."""
     parts = text.strip().split(None, 1)
     cmd = parts[0]
     arg = parts[1].strip() if len(parts) > 1 else ""
+
+    # SQLite dot-commands (litecli compatibility)
+    if cmd.startswith("."):
+        return _handle_dot_command(cmd.lower(), arg, conn, state)
 
     # Case-sensitive commands: \T, \dv, etc. Case-insensitive for the rest.
     cmd_lower = cmd.lower()
@@ -112,6 +116,18 @@ def handle_command(text: str, conn: Connection, state: dict) -> str | None:
             return "Usage: \\nd <name>"
         return _delete_named_query(arg)
 
+    # --- Verbose errors ---
+    elif cmd_lower == "\\v":
+        state["verbose_errors"] = not state.get("verbose_errors", False)
+        return f"Verbose errors {'on' if state['verbose_errors'] else 'off'}."
+
+    # --- Switch database ---
+    elif cmd_lower == "\\c":
+        if not arg:
+            return "Usage: \\c <database_name>"
+        state["_switch_db"] = arg
+        return ""
+
     # --- Connection info ---
     elif cmd_lower == "\\conninfo":
         return _conninfo(conn)
@@ -133,6 +149,36 @@ def handle_command(text: str, conn: Connection, state: dict) -> str | None:
         return None  # signals quit
     else:
         return f"Unknown command: {cmd}\nType \\? for help."
+
+
+def _handle_dot_command(cmd: str, arg: str, conn: Connection, state: dict) -> str:
+    """Handle SQLite-style dot commands (litecli compatibility)."""
+    if cmd == ".tables":
+        return _list_tables(conn)
+    elif cmd == ".schema":
+        if not arg:
+            # Show all schemas
+            tables = conn.get_tables()
+            lines = []
+            for t in tables:
+                lines.append(_show_schema(conn, t))
+            return "\n\n".join(lines) if lines else "No tables found."
+        return _show_schema(conn, arg)
+    elif cmd == ".indexes" or cmd == ".indices":
+        return _list_indexes(conn, arg or None)
+    elif cmd == ".databases":
+        result = conn.execute("PRAGMA database_list")
+        if not result.rows:
+            return "main"
+        return "\n".join(f"{r.get('name', 'main')}: {r.get('file', '')}" for r in result.rows)
+    elif cmd == ".views":
+        return _list_views(conn)
+    elif cmd == ".help":
+        return _help()
+    elif cmd == ".quit" or cmd == ".exit":
+        return None  # type: ignore
+    else:
+        return f"Unknown command: {cmd}\nType \\? or .help for help."
 
 
 def _conninfo(conn: Connection) -> str:
@@ -337,6 +383,8 @@ def _help() -> str:
   \\dv              List views.
   \\schema <table>  Show CREATE statement.
   \\conninfo        Show connection details.
+  \\c <database>    Switch to a different D1 database.
+  \\v               Toggle verbose errors.
 
   \\T <format>      Change output format (table, json, csv, vertical).
   \\x               Toggle expanded output.
@@ -357,9 +405,17 @@ def _help() -> str:
   \\? / \\help       Show this help.
   \\q / exit        Quit d1cli.
 
+SQLite dot-commands:
+  .tables           List tables.
+  .schema [table]   Show CREATE statements.
+  .indexes [table]  List indexes.
+  .databases        List attached databases.
+  .views            List views.
+
 Key bindings:
   F2               Toggle smart completion.
   F3               Toggle multiline mode.
   F4               Toggle Vi/Emacs mode.
   Tab              Force auto-completion.
+  Ctrl+Space       Force auto-completion.
   Ctrl+R           Search history."""

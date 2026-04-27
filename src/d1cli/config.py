@@ -27,6 +27,8 @@ DEFAULTS = {
     "syntax_style": "native",  # native, monokai, solarized-dark, solarized-light
     "wider_completion_menu": False,
     "prompt": "\\d(\\m)> ",  # \d=database, \m=mode
+    "verbose_errors": False,
+    "startup_commands": [],  # e.g. ["PRAGMA foreign_keys = ON", "\\timing"]
 }
 
 

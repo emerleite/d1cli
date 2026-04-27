@@ -41,6 +41,46 @@ DESTRUCTIVE_PATTERN = re.compile(
 )
 
 
+def _split_statements(text: str) -> list[str]:
+    """Split SQL text into individual statements, respecting string literals."""
+    statements = []
+    current = []
+    in_single = False
+    in_double = False
+
+    for ch in text:
+        if ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        elif ch == ";" and not in_single and not in_double:
+            stmt = "".join(current).strip()
+            if stmt:
+                statements.append(stmt)
+            current = []
+            continue
+        current.append(ch)
+
+    # Remaining text without trailing ;
+    stmt = "".join(current).strip()
+    if stmt:
+        statements.append(stmt)
+
+    return statements
+
+
+def _humanize_duration(ms: float) -> str:
+    """Format duration like pgcli: 0.45ms, 2.3s, 1m 30s."""
+    if ms < 1000:
+        return f"{ms:.2f}ms"
+    secs = ms / 1000
+    if secs < 60:
+        return f"{secs:.1f}s"
+    mins = int(secs // 60)
+    remaining = secs % 60
+    return f"{mins}m {remaining:.0f}s"
+
+
 def _create_connection(local: bool, persist_to: str | None, db: str | None, database_id: str | None) -> Connection:
     config_path = find_wrangler_config()
     bindings = parse_d1_bindings(config_path) if config_path else []
@@ -123,17 +163,18 @@ def _detect_account_id(api_token: str) -> str | None:
 
 def _make_toolbar(conn: Connection, state: dict):
     def toolbar():
-        parts = [
-            f" {conn.name} ({conn.mode})",
-            f"format: {state['format']}",
-        ]
-        if state["timing"]:
-            parts.append("timing: on")
-        if state["expanded"]:
-            parts.append("expanded: on")
-        if state.get("vi_mode"):
-            parts.append("vi")
-        return " | ".join(parts)
+        left = f" {conn.name} ({conn.mode})"
+        parts = [f"F2:Smart {'on' if state.get('smart_completion', True) else 'off'}"]
+        parts.append(f"F4:{'Vi' if state.get('vi_mode') else 'Emacs'}")
+        parts.append(f"fmt:{state.get('format', 'table')}")
+        if state.get("timing"):
+            parts.append("timing")
+        if state.get("expanded"):
+            parts.append("\\x")
+        last_dur = state.get("_last_duration")
+        if last_dur is not None:
+            parts.append(_humanize_duration(last_dur))
+        return left + " | " + " | ".join(parts)
     return toolbar
 
 
@@ -199,6 +240,30 @@ def _format_prompt(template: str, conn: Connection) -> str:
     return template.replace("\\d", conn.name).replace("\\m", conn.mode)
 
 
+def _log_query(log_file: str, text: str) -> None:
+    """Append query to log file."""
+    try:
+        with open(Path(log_file).expanduser(), "a") as f:
+            f.write(f"-- {datetime.now().isoformat()}\n{text}\n\n")
+    except Exception:
+        pass
+
+
+def _run_init_commands(conn: Connection, state: dict, completer: D1Completer) -> None:
+    """Execute startup commands from config."""
+    init_cmds = state.get("startup_commands", [])
+    for cmd in init_cmds:
+        cmd = cmd.strip()
+        if not cmd:
+            continue
+        if cmd.startswith("\\") or cmd.startswith("."):
+            output = handle_command(cmd, conn, state)
+            if output:
+                click.echo(output)
+        else:
+            _execute_and_display(conn, cmd, state, completer)
+
+
 def _confirm_destructive(sql: str, state: dict) -> bool:
     """Warn before destructive queries. Returns True to proceed, False to cancel."""
     if not state.get("destructive_warning", True):
@@ -248,6 +313,9 @@ def _run_repl(conn: Connection, state: dict) -> None:
         click.echo("Type \\? for help, \\q to quit.")
         click.echo("F2: Smart Completion | F3: Multiline | F4: Vi/Emacs\n")
 
+    # Run init commands from config
+    _run_init_commands(conn, state, completer)
+
     while True:
         try:
             prompt_template = state.get("prompt", "\\d(\\m)> ")
@@ -262,16 +330,40 @@ def _run_repl(conn: Connection, state: dict) -> None:
         if not text:
             continue
 
-        # Backslash commands
-        if text.startswith("\\") or text.lower() in ("exit", "quit"):
+        # Log query if logging enabled
+        log_file = state.get("log_file")
+        if log_file:
+            _log_query(log_file, text)
+
+        # Backslash or dot commands
+        if text.startswith("\\") or text.startswith(".") or text.lower() in ("exit", "quit"):
             try:
                 output = handle_command(text, conn, state)
                 if output is None:
                     break
-                click.echo(output)
+                if output:
+                    click.echo(output)
 
                 if state.pop("_refresh_completions", False):
                     completer.refresh()
+
+                # Handle \c (switch database)
+                switch_db = state.pop("_switch_db", None)
+                if switch_db:
+                    try:
+                        new_conn = _create_connection(
+                            conn.mode == "local",
+                            state.get("_persist_to"),
+                            switch_db, None,
+                        )
+                        conn.close()
+                        conn = new_conn
+                        completer = D1Completer(conn, state=state)
+                        completer.refresh()
+                        click.echo(f"Connected to {conn.name} ({conn.mode})")
+                    except Exception as e:
+                        click.secho(f"Error switching database: {e}", fg="red")
+                    continue
 
                 # Handle \watch
                 watch_interval = state.pop("_watch", None)
@@ -288,11 +380,11 @@ def _run_repl(conn: Connection, state: dict) -> None:
                 click.secho(f"Error: {e}", fg="red")
                 continue
 
-        # SQL
-        sql = text.rstrip(";").strip() if text.endswith(";") else text
-        state["last_query"] = sql
-
-        _execute_and_display(conn, sql, state, completer)
+        # SQL — split into individual statements
+        statements = _split_statements(text)
+        for sql in statements:
+            state["last_query"] = sql
+            _execute_and_display(conn, sql, state, completer)
 
     if not state.get("less_chatty"):
         click.echo("Bye!")
@@ -351,17 +443,24 @@ def _execute_and_display(conn: Connection, sql: str, state: dict, completer: D1C
         else:
             click.echo(output)
 
+        # Timing + status
+        state["_last_duration"] = result.duration
         if state.get("timing"):
-            click.secho(f"Time: {result.duration:.2f}ms", fg="bright_black")
+            click.secho(f"Time: {_humanize_duration(result.duration)}", fg="bright_black")
 
         if completer and sql.strip().upper().startswith(("CREATE", "ALTER", "DROP")):
             completer.refresh()
 
     except Exception as e:
-        click.secho(f"Error: {e}", fg="red")
+        if state.get("verbose_errors"):
+            import traceback
+            click.secho(f"Error: {e}", fg="red")
+            click.secho(f"Query: {sql[:200]}", fg="yellow")
+            click.secho(traceback.format_exc(), fg="bright_black")
+        else:
+            click.secho(f"Error: {e}", fg="red")
         if state.get("on_error") == "RESUME":
-            pass  # continue
-        # STOP is default — just return to prompt
+            pass
 
 
 def _watch_query(conn: Connection, state: dict, interval: float) -> None:
@@ -393,8 +492,9 @@ def _watch_query(conn: Connection, state: dict, interval: float) -> None:
 @click.option("--row-limit", default=None, type=int, help="Max rows (0=no limit, default 1000)")
 @click.option("--vi/--emacs", "vi_mode", default=None, help="Vi or Emacs editing mode")
 @click.option("--less-chatty", is_flag=True, default=False, help="Suppress banner")
+@click.option("--log-file", default=None, help="Log all queries to file")
 @click.version_option(__version__)
-def cli(local, persist_to, db, database_id, execute, sql_file, fmt, row_limit, vi_mode, less_chatty):
+def cli(local, persist_to, db, database_id, execute, sql_file, fmt, row_limit, vi_mode, less_chatty, log_file):
     """Interactive SQL REPL for Cloudflare D1 databases."""
     try:
         # Load config, override with CLI flags
@@ -407,19 +507,25 @@ def cli(local, persist_to, db, database_id, execute, sql_file, fmt, row_limit, v
             state["vi_mode"] = vi_mode
         if less_chatty:
             state["less_chatty"] = True
+        if log_file:
+            state["log_file"] = log_file
+        if persist_to:
+            state["_persist_to"] = persist_to
 
         conn = _create_connection(local, persist_to, db, database_id)
 
         if execute:
-            result = conn.execute(execute)
-            click.echo(format_result(result, state.get("format", "table")))
+            for stmt in _split_statements(execute):
+                result = conn.execute(stmt)
+                click.echo(format_result(result, state.get("format", "table")))
             conn.close()
             return
 
         if sql_file:
             sql = Path(sql_file).read_text()
-            result = conn.execute(sql)
-            click.echo(format_result(result, state.get("format", "table")))
+            for stmt in _split_statements(sql):
+                result = conn.execute(stmt)
+                click.echo(format_result(result, state.get("format", "table")))
             conn.close()
             return
 
