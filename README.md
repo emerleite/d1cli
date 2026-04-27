@@ -24,6 +24,8 @@ Built with [prompt_toolkit](https://github.com/prompt-toolkit/python-prompt-tool
 
 ## Install
 
+### PyPI (any OS)
+
 ```bash
 pip install cloudflare-d1cli
 ```
@@ -34,11 +36,27 @@ Or with [uv](https://github.com/astral-sh/uv):
 uv pip install cloudflare-d1cli
 ```
 
-Or with Homebrew:
+### Homebrew (macOS / Linux)
 
 ```bash
 brew tap emerleite/tap
 brew install d1cli
+```
+
+### Standalone binary (no Python needed)
+
+Download from [GitHub Releases](https://github.com/emerleite/d1cli/releases):
+
+```bash
+# macOS (Apple Silicon)
+curl -L https://github.com/emerleite/d1cli/releases/latest/download/d1cli-macos-arm64 -o d1cli
+
+# Linux (x86_64)
+curl -L https://github.com/emerleite/d1cli/releases/latest/download/d1cli-linux-x86_64 -o d1cli
+
+# Make executable and move to PATH
+chmod +x d1cli
+sudo mv d1cli /usr/local/bin/
 ```
 
 ## Quick Start
