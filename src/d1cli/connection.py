@@ -167,7 +167,12 @@ class RemoteConnection(Connection):
         resp.raise_for_status()
         return resp.json()
 
-    def execute(self, sql: str) -> QueryResult:
+    def execute(self, sql: str, row_limit: int = 0) -> QueryResult:
+        # For remote, apply LIMIT at SQL level if row_limit is set
+        if row_limit > 0 and sql.strip().upper().startswith(("SELECT", "WITH")):
+            if "LIMIT" not in sql.upper():
+                sql = f"{sql.rstrip(';')} LIMIT {row_limit + 1}"
+
         start = time.perf_counter()
         data = self._query(sql)
 
@@ -179,11 +184,23 @@ class RemoteConnection(Connection):
         rows = result.get("results", [])
         columns = list(rows[0].keys()) if rows else []
         duration = (time.perf_counter() - start) * 1000
+        stmt_type = sql.strip().split()[0].upper() if sql.strip() else ""
 
-        return QueryResult(
+        truncated = False
+        if row_limit > 0 and len(rows) > row_limit:
+            rows = rows[:row_limit]
+            truncated = True
+
+        changes = result.get("meta", {}).get("changes", 0)
+        is_read = stmt_type in ("SELECT", "WITH", "PRAGMA", "EXPLAIN")
+        status = f"SELECT {len(rows)}" if is_read else f"{stmt_type} {changes}" if changes >= 0 else stmt_type
+
+        r = QueryResult(
             columns=columns, rows=rows, row_count=len(rows),
-            changes=result.get("meta", {}).get("changes", 0), duration=duration,
+            changes=changes, duration=duration, status_message=status,
         )
+        r.truncated = truncated
+        return r
 
     def get_tables(self) -> list[str]:
         result = self.execute(TABLES_SQL)
