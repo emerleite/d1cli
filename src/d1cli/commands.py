@@ -121,10 +121,14 @@ def handle_command(text: str, conn: Connection, state: dict) -> str | None:
         state["verbose_errors"] = not state.get("verbose_errors", False)
         return f"Verbose errors {'on' if state['verbose_errors'] else 'off'}."
 
-    # --- Switch database ---
+    # --- Switch database / connection profile ---
     elif cmd_lower == "\\c":
         if not arg:
-            return "Usage: \\c <database_name>"
+            from .config import get_connection_names
+            names = get_connection_names(state)
+            if names:
+                return "Available connections:\n" + "\n".join(f"  {n}" for n in names) + "\n\nUsage: \\c <name>"
+            return "No connection profiles defined. Add [connections.<name>] to ~/.config/d1cli/config.toml"
         state["_switch_db"] = arg
         return ""
 

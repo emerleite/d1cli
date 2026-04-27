@@ -22,7 +22,7 @@ from pygments.lexers.sql import SqlLexer
 from . import __version__
 from .commands import handle_command
 from .completer import D1Completer
-from .config import load_config, save_config
+from .config import load_config, save_config, get_connections, get_connection_names, ConnectionProfile
 from .connection import (
     Connection, LocalConnection, RemoteConnection,
     resolve_local_d1_path,
@@ -79,6 +79,49 @@ def _humanize_duration(ms: float) -> str:
     mins = int(secs // 60)
     remaining = secs % 60
     return f"{mins}m {remaining:.0f}s"
+
+
+def _create_connection_from_profile(profile: ConnectionProfile) -> Connection:
+    """Create a connection from a named profile."""
+    is_local = profile.mode == "local"
+    api_token = profile.api_token
+    account_id = profile.account_id
+
+    if not is_local:
+        # Remote — resolve auth
+        if not api_token:
+            api_token = os.environ.get("CF_API_TOKEN") or os.environ.get("CLOUDFLARE_API_TOKEN")
+        if not api_token:
+            auth = read_wrangler_auth()
+            if auth:
+                if auth.expiration_time:
+                    exp = datetime.fromisoformat(auth.expiration_time.replace("Z", "+00:00"))
+                    if exp < datetime.now(timezone.utc):
+                        raise click.ClickException("Wrangler OAuth token expired. Run `wrangler login` to refresh.")
+                api_token = auth.oauth_token
+        if not api_token:
+            raise click.ClickException("No API token for this profile. Set api_token in config or run `wrangler login`.")
+
+        if not account_id:
+            account_id = os.environ.get("CF_ACCOUNT_ID") or os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+        if not account_id:
+            account_id = _detect_account_id(api_token)
+        if not account_id:
+            raise click.ClickException("Could not detect account ID. Set account_id in profile or CF_ACCOUNT_ID env var.")
+
+        config_path = find_wrangler_config()
+        bindings = parse_d1_bindings(config_path) if config_path else []
+        binding = _pick_binding(bindings, profile.db, profile.database_id)
+        return RemoteConnection(account_id, binding.database_id, api_token, binding.database_name)
+
+    # Local
+    config_path = find_wrangler_config()
+    bindings = parse_d1_bindings(config_path) if config_path else []
+    binding = _pick_binding(bindings, profile.db, profile.database_id)
+    sqlite_path = resolve_local_d1_path(binding.database_id, profile.persist_to)
+    if not sqlite_path:
+        raise click.ClickException("Could not find local D1 database file for this profile.")
+    return LocalConnection(sqlite_path, binding.database_name)
 
 
 def _create_connection(local: bool, persist_to: str | None, db: str | None, database_id: str | None) -> Connection:
@@ -347,22 +390,26 @@ def _run_repl(conn: Connection, state: dict) -> None:
                 if state.pop("_refresh_completions", False):
                     completer.refresh()
 
-                # Handle \c (switch database)
-                switch_db = state.pop("_switch_db", None)
-                if switch_db:
+                # Handle \c (switch database or profile)
+                switch_target = state.pop("_switch_db", None)
+                if switch_target:
                     try:
-                        new_conn = _create_connection(
-                            conn.mode == "local",
-                            state.get("_persist_to"),
-                            switch_db, None,
-                        )
+                        profiles = get_connections(state)
+                        if switch_target in profiles:
+                            new_conn = _create_connection_from_profile(profiles[switch_target])
+                        else:
+                            new_conn = _create_connection(
+                                conn.mode == "local",
+                                state.get("_persist_to"),
+                                switch_target, None,
+                            )
                         conn.close()
                         conn = new_conn
                         completer = D1Completer(conn, state=state)
                         completer.refresh()
                         click.echo(f"Connected to {conn.name} ({conn.mode})")
                     except Exception as e:
-                        click.secho(f"Error switching database: {e}", fg="red")
+                        click.secho(f"Error switching: {e}", fg="red")
                     continue
 
                 # Handle \watch
@@ -482,6 +529,7 @@ def _watch_query(conn: Connection, state: dict, interval: float) -> None:
 
 
 @click.command()
+@click.option("-c", "--connection", "conn_name", default=None, help="Connection profile name from config")
 @click.option("--local/--remote", default=True, help="Connect to local or remote D1")
 @click.option("--persist-to", default=None, help="Local persistence directory")
 @click.option("--db", default=None, help="Database name from wrangler.toml")
@@ -494,7 +542,7 @@ def _watch_query(conn: Connection, state: dict, interval: float) -> None:
 @click.option("--less-chatty", is_flag=True, default=False, help="Suppress banner")
 @click.option("--log-file", default=None, help="Log all queries to file")
 @click.version_option(__version__)
-def cli(local, persist_to, db, database_id, execute, sql_file, fmt, row_limit, vi_mode, less_chatty, log_file):
+def cli(conn_name, local, persist_to, db, database_id, execute, sql_file, fmt, row_limit, vi_mode, less_chatty, log_file):
     """Interactive SQL REPL for Cloudflare D1 databases."""
     try:
         # Load config, override with CLI flags
@@ -512,7 +560,15 @@ def cli(local, persist_to, db, database_id, execute, sql_file, fmt, row_limit, v
         if persist_to:
             state["_persist_to"] = persist_to
 
-        conn = _create_connection(local, persist_to, db, database_id)
+        # Connect via profile or flags
+        if conn_name:
+            profiles = get_connections(state)
+            if conn_name not in profiles:
+                available = ", ".join(profiles.keys()) if profiles else "none"
+                raise click.ClickException(f'Connection "{conn_name}" not found. Available: {available}')
+            conn = _create_connection_from_profile(profiles[conn_name])
+        else:
+            conn = _create_connection(local, persist_to, db, database_id)
 
         if execute:
             for stmt in _split_statements(execute):

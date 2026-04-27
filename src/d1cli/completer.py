@@ -144,6 +144,13 @@ class D1Completer(Completer):
         except Exception:
             pass
 
+    def _get_profile_names(self) -> list[str]:
+        try:
+            from .config import get_connection_names
+            return get_connection_names(self.state)
+        except Exception:
+            return []
+
     def _get_database_names(self) -> list[str]:
         try:
             from .wrangler import find_wrangler_config, parse_d1_bindings
@@ -226,6 +233,10 @@ class D1Completer(Completer):
                     if f.startswith(arg_partial.lower()):
                         yield Completion(f, -len(arg_partial), display_meta="format")
             elif cmd_name == "\\c":
+                # Suggest connection profiles first, then database names
+                for name in self._get_profile_names():
+                    if name.lower().startswith(arg_partial.lower()):
+                        yield Completion(name, -len(arg_partial), display_meta="profile")
                 for name in self._get_database_names():
                     if name.lower().startswith(arg_partial.lower()):
                         yield Completion(name, -len(arg_partial), display_meta="database")
