@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/d1cli
+      url: https://pypi.org/p/cloudflare-d1cli
     steps:
       - uses: actions/checkout@v4
 
@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/d1cli
+      url: https://pypi.org/p/cloudflare-d1cli
     steps:
       - uses: actions/checkout@v4
 
@@ -191,8 +191,8 @@ jobs:
           GIT_REF: ${{ github.ref }}
         run: |
           TAG_VERSION="${GIT_REF#refs/tags/v}"
-          pip install homebrew-pypi-poet "d1cli==${TAG_VERSION}"
-          poet -f d1cli > homebrew-tap/Formula/d1cli.rb
+          pip install homebrew-pypi-poet "cloudflare-d1cli==${TAG_VERSION}"
+          poet -f cloudflare-d1cli > homebrew-tap/Formula/d1cli.rb
 
       - name: Commit formula update
         run: |

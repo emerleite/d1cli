@@ -25,13 +25,13 @@ Built with [prompt_toolkit](https://github.com/prompt-toolkit/python-prompt-tool
 ## Install
 
 ```bash
-pip install d1cli
+pip install cloudflare-d1cli
 ```
 
 Or with [uv](https://github.com/astral-sh/uv):
 
 ```bash
-uv pip install d1cli
+uv pip install cloudflare-d1cli
 ```
 
 Or with Homebrew:
