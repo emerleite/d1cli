@@ -45,7 +45,20 @@ brew install d1cli
 
 ### Connection profiles (recommended)
 
-Define connections in `~/.config/d1cli/config.toml`:
+Create a profile interactively:
+
+```
+$ d1cli --local
+bibliafala> \profile add prod
+Mode (local/remote) [remote]: remote
+Database name (from wrangler.toml): bibliafala
+Database ID (or Enter to use db name):
+Account ID (Enter to auto-detect):
+API token (Enter for wrangler login):
+Profile 'prod' saved to ~/.config/d1cli/config.toml
+```
+
+Or edit `~/.config/d1cli/config.toml` directly:
 
 ```toml
 [connections.prod]
@@ -72,11 +85,17 @@ d1cli -c staging    # remote staging
 d1cli -c local      # local dev
 ```
 
-Switch mid-session with `\c`:
+Switch mid-session:
 
 ```
 bibliafala> \c staging
 Connected to bibliafala (remote)
+
+bibliafala> \profile list
+Connection profiles:
+  prod       remote | bibliafala
+  staging    remote | def-456... | token:***
+  local      local  | bibliafala | ./db/data/
 ```
 
 ### Local mode
@@ -146,6 +165,9 @@ bibliafala> SELECT * FROM messages LIMIT 3;
 | `\dv` | List views |
 | `\schema <table>` | Show CREATE statement |
 | `\c [name]` | Switch connection profile or database |
+| `\profile add <name>` | Create connection profile (interactive wizard) |
+| `\profile list` | Show all connection profiles |
+| `\profile remove <name>` | Delete a connection profile |
 | `\conninfo` | Show connection details |
 | `\v` | Toggle verbose errors |
 | `\T <format>` | Change output format (table, json, csv, vertical) |
