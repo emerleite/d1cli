@@ -100,39 +100,39 @@ def load_config() -> dict:
 
 
 def save_config(config: dict) -> None:
-    """Save settings to TOML (preserves connections section)."""
-    # Build settings dict (only changed values)
-    settings = {}
+    """Save changed settings. Preserves the original file if nothing changed."""
+    if not CONFIG_PATH.exists():
+        return
+
+    # Collect settings that differ from defaults
+    changed = {}
     for k, v in config.items():
         if k.startswith("_"):
             continue
-        if k == "connections":
-            continue
         if k in DEFAULTS and v != DEFAULTS.get(k):
-            settings[k] = v
+            changed[k] = v
 
-    # Load existing to preserve connections
-    existing = {}
-    if CONFIG_PATH.exists():
-        try:
-            existing = tomllib.loads(CONFIG_PATH.read_text())
-        except Exception:
-            pass
+    if not changed:
+        # Nothing changed from defaults — don't touch the file
+        return
 
-    doc = {}
-    if settings:
-        doc["settings"] = settings
-    if "connections" in existing:
-        doc["connections"] = existing["connections"]
-    elif "_connections_raw" in config and config["_connections_raw"]:
-        doc["connections"] = config["_connections_raw"]
-
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(tomli_w.dumps(doc))
-
-    # Secure the file (may contain tokens)
+    # Read existing file to preserve connections and structure
     try:
-        CONFIG_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 600
+        existing = tomllib.loads(CONFIG_PATH.read_text())
+    except Exception:
+        existing = {}
+
+    existing_settings = existing.get("settings", {})
+
+    # Only write if settings actually differ from what's on disk
+    if changed == existing_settings:
+        return
+
+    existing["settings"] = changed
+    CONFIG_PATH.write_text(tomli_w.dumps(existing))
+
+    try:
+        CONFIG_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)
     except OSError:
         pass
 
