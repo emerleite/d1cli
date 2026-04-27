@@ -16,7 +16,7 @@ uv run d1cli --help              # Run without installing
 # Run
 d1cli -c prod                    # Connect via profile
 d1cli --local --persist-to ./db/data/
-d1cli --remote --db bibliafala
+d1cli --remote --db my-database
 d1cli -e "SELECT 1;"            # Non-interactive
 
 # Build & publish

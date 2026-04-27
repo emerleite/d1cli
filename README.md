@@ -49,9 +49,9 @@ Create a profile interactively:
 
 ```
 $ d1cli --local
-bibliafala> \profile add prod
+mydb> \profile add prod
 Mode (local/remote) [remote]: remote
-Database name (from wrangler.toml): bibliafala
+Database name (from wrangler.toml): mydb
 Database ID (or Enter to use db name):
 Account ID (Enter to auto-detect):
 API token (Enter for wrangler login):
@@ -63,7 +63,7 @@ Or edit `~/.config/d1cli/config.toml` directly:
 ```toml
 [connections.prod]
 mode = "remote"
-db = "bibliafala"
+db = "mydb"
 
 [connections.staging]
 mode = "remote"
@@ -73,7 +73,7 @@ api_token = "your-staging-token"   # optional, falls back to wrangler login
 
 [connections.local]
 mode = "local"
-db = "bibliafala"
+db = "mydb"
 persist_to = "./db/data/"
 ```
 
@@ -88,14 +88,14 @@ d1cli -c local      # local dev
 Switch mid-session:
 
 ```
-bibliafala> \c staging
-Connected to bibliafala (remote)
+mydb> \c staging
+Connected to mydb (remote)
 
-bibliafala> \profile list
+mydb> \profile list
 Connection profiles:
-  prod       remote | bibliafala
+  prod       remote | mydb
   staging    remote | def-456... | token:***
-  local      local  | bibliafala | ./db/data/
+  local      local  | mydb | ./db/data/
 ```
 
 ### Local mode
@@ -138,11 +138,11 @@ d1cli --local --log-file /tmp/queries.log              # log all queries
 ```
 $ d1cli -c prod
 d1cli v0.1.0
-Connected to bibliafala (remote)
+Connected to mydb (remote)
 Type \? for help, \q to quit.
 F2: Smart Completion | F3: Multiline | F4: Vi/Emacs
 
-bibliafala> SELECT * FROM messages LIMIT 3;
+mydb> SELECT * FROM messages LIMIT 3;
 +-----+---------------+------+---------------------+
 | id  | whatsapp      | type | created_at          |
 +-----+---------------+------+---------------------+
