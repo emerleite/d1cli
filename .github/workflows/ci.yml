@@ -192,8 +192,6 @@ jobs:
 
           cat > homebrew-tap/Formula/d1cli.rb << FORMULA
           class D1cli < Formula
-            include Language::Python::Virtualenv
-
             desc "Interactive SQL REPL for Cloudflare D1 databases"
             homepage "https://github.com/emerleite/d1cli"
             url "${URL}"
@@ -203,7 +201,9 @@ jobs:
             depends_on "python@3.12"
 
             def install
-              virtualenv_install_with_resources
+              venv = virtualenv_create(libexec, "python3.12")
+              venv.pip_install "cloudflare-d1cli==${TAG_VERSION}"
+              bin.install_symlink Dir[libexec/"bin/d1cli"]
             end
 
             test do
