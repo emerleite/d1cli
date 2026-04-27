@@ -61,6 +61,7 @@ BACKSLASH_COMMANDS = {
     "\\n": "List or execute named queries",
     "\\ns": "Save a named query",
     "\\nd": "Delete a named query",
+    "\\profile": "Manage connection profiles",
     "\\v": "Toggle verbose errors",
     "\\c": "Switch database",
     "\\conninfo": "Show connection details",
@@ -232,6 +233,12 @@ class D1Completer(Completer):
                 for f in OUTPUT_FORMATS:
                     if f.startswith(arg_partial.lower()):
                         yield Completion(f, -len(arg_partial), display_meta="format")
+            elif cmd_name == "\\profile":
+                subcmds = ["add", "list", "remove"]
+                for s in subcmds:
+                    if s.startswith(arg_partial.lower()):
+                        yield Completion(s, -len(arg_partial))
+                return
             elif cmd_name == "\\c":
                 # Suggest connection profiles first, then database names
                 for name in self._get_profile_names():

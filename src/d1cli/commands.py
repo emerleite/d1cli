@@ -132,6 +132,10 @@ def handle_command(text: str, conn: Connection, state: dict) -> str | None:
         state["_switch_db"] = arg
         return ""
 
+    # --- Profile management ---
+    elif cmd_lower == "\\profile":
+        return _handle_profile(arg, state)
+
     # --- Connection info ---
     elif cmd_lower == "\\conninfo":
         return _conninfo(conn)
@@ -153,6 +157,143 @@ def handle_command(text: str, conn: Connection, state: dict) -> str | None:
         return None  # signals quit
     else:
         return f"Unknown command: {cmd}\nType \\? for help."
+
+
+def _handle_profile(arg: str, state: dict) -> str:
+    """Handle \profile add/list/remove commands."""
+    import click
+    from .config import CONFIG_PATH, get_connections, get_connection_names
+
+    parts = arg.split(None, 1)
+    subcmd = parts[0].lower() if parts else ""
+    profile_name = parts[1].strip() if len(parts) > 1 else ""
+
+    if subcmd == "list" or not subcmd:
+        profiles = get_connections(state)
+        if not profiles:
+            return "No connection profiles. Use \\profile add <name> to create one."
+        lines = ["Connection profiles:"]
+        for name, p in profiles.items():
+            details = [p.mode]
+            if p.db:
+                details.append(p.db)
+            if p.database_id:
+                details.append(p.database_id[:12] + "...")
+            if p.persist_to:
+                details.append(p.persist_to)
+            if p.api_token:
+                details.append("token:***")
+            lines.append(f"  {name:<20} {' | '.join(details)}")
+        return "\n".join(lines)
+
+    elif subcmd == "add":
+        if not profile_name:
+            return "Usage: \\profile add <name>"
+
+        try:
+            mode = click.prompt("Mode", type=click.Choice(["local", "remote"]), default="remote")
+
+            profile: dict = {"mode": mode}
+
+            db = click.prompt("Database name (from wrangler.toml)", default="", show_default=False)
+            if db:
+                profile["db"] = db
+
+            if mode == "remote":
+                db_id = click.prompt("Database ID (or Enter to use db name)", default="", show_default=False)
+                if db_id:
+                    profile["database_id"] = db_id
+
+                account_id = click.prompt("Account ID (Enter to auto-detect)", default="", show_default=False)
+                if account_id:
+                    profile["account_id"] = account_id
+
+                api_token = click.prompt("API token (Enter for wrangler login)", default="", show_default=False, hide_input=True)
+                if api_token:
+                    profile["api_token"] = api_token
+            else:
+                persist_to = click.prompt("Persist path", default="./db/data/")
+                profile["persist_to"] = persist_to
+
+            # Save to config file
+            _save_profile(profile_name, profile)
+
+            # Update state so \c can find it immediately
+            if "_connections_raw" not in state:
+                state["_connections_raw"] = {}
+            state["_connections_raw"][profile_name] = profile
+
+            return f"Profile '{profile_name}' saved to {CONFIG_PATH}"
+
+        except (click.Abort, KeyboardInterrupt):
+            return "Cancelled."
+
+    elif subcmd == "remove" or subcmd == "rm":
+        if not profile_name:
+            return "Usage: \\profile remove <name>"
+        if _remove_profile(profile_name, state):
+            return f"Removed profile '{profile_name}'."
+        return f"Profile '{profile_name}' not found."
+
+    else:
+        return "Usage: \\profile <add|list|remove> [name]"
+
+
+def _save_profile(name: str, profile: dict) -> None:
+    """Save a connection profile to config.toml."""
+    import sys
+    if sys.version_info >= (3, 11):
+        import tomllib
+    else:
+        import tomli as tomllib
+    import tomli_w
+    from .config import CONFIG_PATH
+
+    # Read existing config
+    existing = {}
+    if CONFIG_PATH.exists():
+        try:
+            existing = tomllib.loads(CONFIG_PATH.read_text())
+        except Exception:
+            pass
+
+    if "connections" not in existing:
+        existing["connections"] = {}
+    existing["connections"][name] = profile
+
+    CONFIG_PATH.write_text(tomli_w.dumps(existing))
+
+
+def _remove_profile(name: str, state: dict) -> bool:
+    """Remove a connection profile from config.toml."""
+    import sys
+    if sys.version_info >= (3, 11):
+        import tomllib
+    else:
+        import tomli as tomllib
+    import tomli_w
+    from .config import CONFIG_PATH
+
+    existing = {}
+    if CONFIG_PATH.exists():
+        try:
+            existing = tomllib.loads(CONFIG_PATH.read_text())
+        except Exception:
+            return False
+
+    connections = existing.get("connections", {})
+    if name not in connections:
+        return False
+
+    del connections[name]
+    existing["connections"] = connections
+    CONFIG_PATH.write_text(tomli_w.dumps(existing))
+
+    # Update state
+    raw = state.get("_connections_raw", {})
+    raw.pop(name, None)
+
+    return True
 
 
 def _handle_dot_command(cmd: str, arg: str, conn: Connection, state: dict) -> str:
@@ -387,7 +528,10 @@ def _help() -> str:
   \\dv              List views.
   \\schema <table>  Show CREATE statement.
   \\conninfo        Show connection details.
-  \\c <database>    Switch to a different D1 database.
+  \\c <name>        Switch connection profile or database.
+  \\profile add     Create a connection profile (interactive).
+  \\profile list    Show all connection profiles.
+  \\profile remove  Delete a connection profile.
   \\v               Toggle verbose errors.
 
   \\T <format>      Change output format (table, json, csv, vertical).
